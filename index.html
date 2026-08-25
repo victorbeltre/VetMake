@@ -10,7 +10,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260825-smart-catalog-import-v14";
+      var V = "20260825-inteligencia-vetmake-v15";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -65,7 +65,7 @@ const SUPA_FUNCTIONS_URL = SUPA_URL + "/functions/v1";
 const VETMAKE_MULTI_TENANT_TABLES = new Set([
   "pc_clientes", "pc_ventas", "pc_facturas", "pc_inventario", "pc_empleados",
   "pc_gastos", "pc_citas", "pc_seguimientos", "pc_pagos", "pc_tarifas",
-  "pc_historias", "pc_fichas_clinicas", "pc_depositos", "pc_auditoria", "pc_paquetes"
+  "pc_historias", "pc_fichas_clinicas", "pc_depositos", "pc_auditoria", "pc_paquetes", "vet_learning_aliases"
 ]);
 let VETMAKE_TENANT_CONTEXT = null;
 let VETMAKE_TENANT_PROMISE = null;
@@ -144,6 +144,52 @@ function BusinessLogoMark({ size = 36 }) {
   return logo
     ? React.createElement("img", { src: logo, alt: "Logo de " + vetMakeBusinessName(), style: { width: size, height: size, objectFit: "contain", borderRadius: 7, background: "rgba(255,255,255,.96)", padding: 3, flexShrink: 0 }, onError: (e) => { e.currentTarget.style.display = "none"; } })
     : React.createElement("span", { style: { fontSize: Math.round(size * .65), lineHeight: 1, flexShrink: 0 } }, "🐾");
+}
+function vetSmartNormalize(value) {
+  return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/\b(pendiente de pago|pagado|factura|venta|unidad|unidades)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+function vetSmartTokens(value) { return new Set(vetSmartNormalize(value).split(" ").filter(x => x.length > 1)); }
+function vetSmartSimilarity(a, b) {
+  const aa = vetSmartTokens(a), bb = vetSmartTokens(b);
+  if (!aa.size || !bb.size) return 0;
+  let comun = 0; aa.forEach(x => { if (bb.has(x)) comun++; });
+  return (2 * comun) / (aa.size + bb.size);
+}
+function vetSmartEditSimilarity(a,b){
+  const x=vetSmartNormalize(a).replace(/\s/g,""),y=vetSmartNormalize(b).replace(/\s/g,"");
+  if(!x||!y)return 0; const prev=Array.from({length:y.length+1},(_,i)=>i);
+  for(let i=1;i<=x.length;i++){let diag=prev[0];prev[0]=i;for(let j=1;j<=y.length;j++){const old=prev[j];prev[j]=Math.min(prev[j]+1,prev[j-1]+1,diag+(x[i-1]===y[j-1]?0:1));diag=old;}}
+  return 1-prev[y.length]/Math.max(x.length,y.length);
+}
+function vetClassifyItem(nombre, conocimiento = [], aprendidos = []) {
+  const original = String(nombre || "").trim(), normal = vetSmartNormalize(original);
+  const aprendido = (aprendidos || []).find(x => vetSmartNormalize(x.normalized_input || x.input_name) === normal);
+  if (aprendido) return { category: aprendido.classification, inventoryCategory: aprendido.inventory_category || "", confidence: 100, canonical: aprendido.canonical_name, reason: "Clasificación confirmada por este negocio", learned: true };
+  let mejor = null, score = 0;
+  (conocimiento || []).forEach(k => {
+    const candidatos = [k.canonical_name, ...(k.aliases || []), ...(k.keywords || [])];
+    candidatos.forEach(c => {
+      const cn = vetSmartNormalize(c); let s = normal === cn ? 1 : (normal.includes(cn) || cn.includes(normal)) && Math.min(normal.length,cn.length) > 4 ? .9 : Math.max(vetSmartSimilarity(normal, cn),vetSmartEditSimilarity(normal,cn));
+      if (s > score) { score = s; mejor = k; }
+    });
+  });
+  const reglas = [
+    [/nexgard|bravecto|simparic|frontline|revolution|drontal|milbemax|fipronil|afoxolan|fluralaner|sarolaner|antibiotic|amoxic|cefalex|metronid|meloxic|prednis|ivermect|praziquant|vacuna|medicamento|farmaco/,"farmacia","farmaco","Coincidencia con medicamento o principio activo"],
+    [/royal canin|hills|purina|pro plan|pedigree|whiskas|alimento|comida|croqueta|dieta/,"alimento","alimento","Coincidencia con alimento o dieta"],
+    [/collar|correa|arnes|juguete|cama|comedero|bebedero|transportadora|ropa/,"accesorio","accesorio","Coincidencia con accesorio de tienda"],
+    [/shampoo|champu|perfume|colonia|cepillo|toalla|pañal|pad/,"insumo","insumo","Coincidencia con higiene o insumo"],
+    [/consulta|hemograma|radiografia|sonografia|cirugia|profilaxis|hospitaliza|curacion|laboratorio/,"servicio_veterinario","","Coincidencia con servicio veterinario"],
+    [/baño|corte|grooming|deslanado|desenredado|uñas|oidos/,"grooming","","Coincidencia con servicio de grooming"]
+  ];
+  const regla = reglas.find(r => r[0].test(normal));
+  if (mejor && score >= .52) {
+    const kind = mejor.kind;
+    return { category: kind, inventoryCategory: mejor.inventory_category || "", confidence: Math.round(Math.min(99, 55 + score * 44)), canonical: mejor.canonical_name, reason: score >= .9 ? "Coincidencia directa con la base veterinaria" : "Nombre similar a " + mejor.canonical_name, knowledge: mejor };
+  }
+  if (regla) return { category: regla[1], inventoryCategory: regla[2], confidence: 82, canonical: original, reason: regla[3] };
+  return { category: "sin_clasificar", inventoryCategory: "", confidence: 35, canonical: original, reason: "No hay evidencia suficiente; requiere confirmación" };
 }
 function vetMakeRoleLabel(rol) {
   const labels = { admin: "Administrador", caja: "Caja", veterinario: "Veterinario", groomer: "Groomer" };
@@ -2090,6 +2136,7 @@ const Select = ({ label, value, onChange, options }) => /* @__PURE__ */ React.cr
 const KPI = ({ label, val, color = C.verde, sub }) => /* @__PURE__ */ React.createElement(Card, { style: { textAlign: "center", borderTop: `4px solid ${color}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: C.grisd, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 } }, label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "Georgia,serif", fontSize: 28, color, fontWeight: 700, lineHeight: 1 } }, val), sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: C.grisd, marginTop: 6 } }, sub));
 const TABS = [
   { id: "dashboard", icon: "\u{1F4CA}", label: "Dashboard" },
+  { id: "inteligencia", icon: "🧠", label: "Inteligencia VetMake" },
   { id: "tutorial", icon: "\u{1F9ED}", label: "Tutorial y primeros pasos" },
   { id: "agenda", icon: "\u{1F4C5}", label: "Agenda" },
   { id: "ventas", icon: "\u{1F4B0}", label: "Ventas" },
@@ -8890,6 +8937,8 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
   const [clientes, setClientes, clientesLoaded, , deleteCliente, refetchClientes] = useSupabase("pc_clientes", CLIENTES_SEED);
   const [seguimientos, setSeguimientos, segsLoaded, , , refetchSeguimientos] = useSupabase("pc_seguimientos", SEGUIMIENTOS_SEED);
   const [inventario, setInventario, invLoaded, , deleteInv, refetchInventario] = useSupabase("pc_inventario", INVENTARIO_SEED);
+  const [vetKnowledge, , vetKnowledgeLoaded] = useSupabase("vet_knowledge_products", []);
+  const [vetLearning, , , , , refetchVetLearning] = useSupabase("vet_learning_aliases", []);
   const [citas, setCitas, , , deleteCitaRow, refetchCitas] = useSupabase("pc_citas", (() => { try { return JSON.parse(localStorage.getItem("pc_citas_agenda") || "[]"); } catch { return []; } })());
   const [lastSync, setLastSync] = useState(null);
   const [pollingSync, setPollingSync] = useState(false);
@@ -9158,8 +9207,8 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
       }}, pendientes)
     );
   })), /* @__PURE__ */ React.createElement("main", { className:"vetmake-main", style:{flex:1,minWidth:0}}, /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1200, margin: "0 auto", padding: "28px 24px" } }, tab === "tutorial" && React.createElement(TutorialVetMake,{setTab,tenant}), tab === "dashboard" && React.createElement(AvisoAntiparasitarios, { seguimientos, clientes: todosClientes, ventas, setTab }), tab === "dashboard" && React.createElement(AvisoAbonosPorCobrar, { ventas, clientes: todosClientes, setTab }), tab === "dashboard" && React.createElement(AvisoLlamadasSofia, { setTab }), tab === "dashboard" && React.createElement(AvisoCitasProximas, { citas, setCitas, clientes: todosClientes }), tab === "dashboard" && React.createElement(AvisoReactivacion, { clientes: todosClientes, ventas, setTab }), tab === "dashboard" && React.createElement(AvisoCambiosFacturas, { session }), tab === "dashboard" && React.createElement(AvisoFechasFuturas, { ventas, setVentas }), tab === "dashboard" && React.createElement(AvisoRespaldo, null), tab === "dashboard" && React.createElement(AvisoClientesNuevos, { clientes: todosClientes, notifLeidas, setTab }), tab === "dashboard" && React.createElement(AvisoCandidatosNuevos, { setTab }), tab === "dashboard" && (ventasLoaded ? /* @__PURE__ */ React.createElement(Dashboard, { totalVentas, totalEgresos, utilidad, totalNomina, totalGastos, ventasMes, comisionesGrm, comisionesVet, comisionesValen, comGrmSistema, comVetSistema, comAyleinSistema, comValenSistema, COM_GRM_EXCEL_MARZO, COM_VET_EXCEL_MARZO, seguimientos, clientes, ventas, inventario: todoInventario, setVentas, setTab, citas, gastos, pagosNom }) : /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "70px 24px", color: "#5a6472" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 32, marginBottom: 12 } }, "⏳"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 700, marginBottom: 6 } }, "Sincronizando con Supabase…"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12 } }, "Los n\xFAmeros ser\xE1n los mismos que en el Google Sheets"))),
-        tab === "agenda" && /* @__PURE__ */ React.createElement(Agenda, { citas, setCitas, deleteCita: deleteCitaRow, clientes: todosClientes, ventas, setVentas, tarifasGrooming, tarifasVet, setTab, refetchCitasAgenda: refetchCitas }), /* @__PURE__ */ React.createElement("div", { key: "t-ventas", style: { display: tab === "ventas" ? "" : "none" } }, /* @__PURE__ */ React.createElement(Ventas, { ventas, setVentas, deleteVenta, inventario, setInventario, clientes: todosClientes, setClientes, citas, setCitas, paquetes, setPaquetes, setTab, setCrmClienteInicial, clienteVentaInicial: crmClienteInicial, clearClienteVentaInicial: clearCrmClienteInicial, tarifasGrooming, tarifasVet, setSeguimientos })), /* @__PURE__ */ React.createElement("div", { key: "t-clientes", style: { display: tab === "clientes" ? "" : "none" } }, /* @__PURE__ */ React.createElement(CRM, { clientes: todosClientes, setClientes, deleteCliente, onVirtualFusion: () => setVirtualFusionVer(v => v+1), ventas, setVentas, clienteInicial: crmClienteInicial, onClearClienteInicial: clearCrmClienteInicial, setTab, setCrmClienteInicial, historias, setHistorias: setHistoriasRaw, deleteHistoria, citas, setCitas })), tab === "seguimientos" && /* @__PURE__ */ React.createElement(Seguimientos, { seguimientos, setSeguimientos, clientes, ventas, pushHistorial, snapSeguimientos: seguimientos }), tab === "inventario" && /* @__PURE__ */ React.createElement(Inventario, { inventario: todoInventario, setInventario, ventas, deleteInv }), tab === "nomina" && /* @__PURE__ */ React.createElement(Nomina, { empleados, setEmpleados, pagosNom, setPagosNom, ventasMes, mesActual }), tab === "gastos" && /* @__PURE__ */ React.createElement(Gastos, { gastos, setGastos }), tab === "facturas" && /* @__PURE__ */ React.createElement(Facturas, { ventas, setVentas, deleteVenta, clientes: todosClientes, citas, setCitas, historias, tarifasGrooming, tarifasVet, inventario: todoInventario }), tab === "importar" && React.createElement(CentroDatosVetMake, { ventas, gastos, clientes: todosClientes, pagosNom, empleados, inventario: todoInventario, citas, seguimientos, tarifasGrooming, tarifasVet, onImported: sincronizarAhora }), tab === "reportes" && /* @__PURE__ */ React.createElement(Reportes, { ventas, gastos, pagosNom, empleados }),
-    tab === "servicios" && React.createElement(TabServicios, { tarifasGrooming, setTarifasGrooming, tarifasVet, setTarifasVet, inventario: todoInventario, setInventario }),
+        tab === "agenda" && /* @__PURE__ */ React.createElement(Agenda, { citas, setCitas, deleteCita: deleteCitaRow, clientes: todosClientes, ventas, setVentas, tarifasGrooming, tarifasVet, setTab, refetchCitasAgenda: refetchCitas }), /* @__PURE__ */ React.createElement("div", { key: "t-ventas", style: { display: tab === "ventas" ? "" : "none" } }, /* @__PURE__ */ React.createElement(Ventas, { ventas, setVentas, deleteVenta, inventario, setInventario, clientes: todosClientes, setClientes, citas, setCitas, paquetes, setPaquetes, setTab, setCrmClienteInicial, clienteVentaInicial: crmClienteInicial, clearClienteVentaInicial: clearCrmClienteInicial, tarifasGrooming, tarifasVet, setSeguimientos })), /* @__PURE__ */ React.createElement("div", { key: "t-clientes", style: { display: tab === "clientes" ? "" : "none" } }, /* @__PURE__ */ React.createElement(CRM, { clientes: todosClientes, setClientes, deleteCliente, onVirtualFusion: () => setVirtualFusionVer(v => v+1), ventas, setVentas, clienteInicial: crmClienteInicial, onClearClienteInicial: clearCrmClienteInicial, setTab, setCrmClienteInicial, historias, setHistorias: setHistoriasRaw, deleteHistoria, citas, setCitas })), tab === "inteligencia" && React.createElement(InteligenciaVetMake, { inventario:todoInventario, ventas, clientes:todosClientes, citas, gastos, tarifasGrooming, tarifasVet, knowledge:vetKnowledge, learning:vetLearning, knowledgeLoaded:vetKnowledgeLoaded, tenant, setTab, refetchLearning:refetchVetLearning }), tab === "seguimientos" && /* @__PURE__ */ React.createElement(Seguimientos, { seguimientos, setSeguimientos, clientes, ventas, pushHistorial, snapSeguimientos: seguimientos }), tab === "inventario" && /* @__PURE__ */ React.createElement(Inventario, { inventario: todoInventario, setInventario, ventas, deleteInv, knowledge:vetKnowledge, learning:vetLearning }), tab === "nomina" && /* @__PURE__ */ React.createElement(Nomina, { empleados, setEmpleados, pagosNom, setPagosNom, ventasMes, mesActual }), tab === "gastos" && /* @__PURE__ */ React.createElement(Gastos, { gastos, setGastos }), tab === "facturas" && /* @__PURE__ */ React.createElement(Facturas, { ventas, setVentas, deleteVenta, clientes: todosClientes, citas, setCitas, historias, tarifasGrooming, tarifasVet, inventario: todoInventario }), tab === "importar" && React.createElement(CentroDatosVetMake, { ventas, gastos, clientes: todosClientes, pagosNom, empleados, inventario: todoInventario, citas, seguimientos, tarifasGrooming, tarifasVet, onImported: sincronizarAhora }), tab === "reportes" && /* @__PURE__ */ React.createElement(Reportes, { ventas, gastos, pagosNom, empleados }),
+    tab === "servicios" && React.createElement(TabServicios, { tarifasGrooming, setTarifasGrooming, tarifasVet, setTarifasVet, inventario: todoInventario, setInventario, knowledge:vetKnowledge, learning:vetLearning }),
     tab === "configuracion" && React.createElement(ConfiguracionNegocio, { tenant, onTenantChange, empleados, setEmpleados, deleteEmpleado, refetchEmpleados, onGoServicios: () => setTab("servicios") }),
     tab === "vozia" && React.createElement(VozIA, null),
     tab === "llamadas" && React.createElement(Llamadas, null),
@@ -12511,7 +12560,7 @@ function InventarioAnalytics({ inventario, ventas }) {
     ["\u{1F381}", "Muestra gratis", "Pide a tus proveedores (ESPAVET, MEDIVET) muestras de productos nuevos. \xDAsalas para que los clientes los prueben antes de comprar."]
   ].map(([ico, tit, desc]) => /* @__PURE__ */ React.createElement("div", { key: tit, style: { display: "flex", gap: 10, padding: "10px 12px", background: "rgba(255,255,255,0.7)", borderRadius: 10 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 20 } }, ico), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700 } }, tit), /* @__PURE__ */ React.createElement("div", { style: { color: C.grisd, fontSize: 12, marginTop: 2 } }, desc))))))));
 }
-function Inventario({ inventario, setInventario, ventas, deleteInv }) {
+function Inventario({ inventario, setInventario, ventas, deleteInv, knowledge = [], learning = [] }) {
   const [form, setForm] = useState({ nombre: "", categoria: "farmaco", stock: "", stockMin: "", costo: "", pventa: "" });
   const [filtro, setFiltro] = useState("todo");
   const [editId, setEditId] = useState(null);
@@ -12522,6 +12571,8 @@ function Inventario({ inventario, setInventario, ventas, deleteInv }) {
   const deletedAutoIds = useRef(new Set(JSON.parse(localStorage.getItem(deletedAutoKey) || "[]")));
   const setF = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const detectarCategoria = (nombre) => {
+    const smart = vetClassifyItem(nombre, knowledge, learning);
+    if (smart.confidence >= 75 && smart.inventoryCategory) return smart.inventoryCategory;
     const n = (nombre || "").toLowerCase();
     if (/nexgard|frontline|rilexine|epiotic|allermyl|hexadene|easotic|albendazol|vacuna|amoxicilina|cefalexina|metronidazol|dexametasona|prednisolona|ivermectina|praziquantel|ketoconazol|clorhexidina|ciprofloxacino|enrofloxacino|meloxicam|tramadol|furosemida|omeprazol|ranitidina|diphenhy|difenhi|benadryl|antifungal|antibiotic|antiparasit|antiinfla|vitamin|suplemento|shed-x|vf clinical|shampoo sensible|wipe limpiador/.test(n))
       return "farmaco";
@@ -18434,8 +18485,84 @@ function TabNotificaciones({ clientes, setClientes, notifLeidas, marcarNotifLeid
   );
 }
 
+function InteligenciaVetMake({ inventario=[], ventas=[], clientes=[], citas=[], gastos=[], tarifasGrooming=[], tarifasVet=[], knowledge=[], learning=[], knowledgeLoaded, tenant, setTab, refetchLearning }) {
+  const E = React.createElement;
+  const [seccion,setSeccion]=React.useState("resumen");
+  const [consulta,setConsulta]=React.useState("");
+  const [busca,setBusca]=React.useState("");
+  const [ensenar,setEnsenar]=React.useState({input:"",canonical:"",classification:"farmacia",inventory_category:"farmaco"});
+  const [msg,setMsg]=React.useState("");
+  const resultado = consulta.trim() ? vetClassifyItem(consulta,knowledge,learning) : null;
+  const hoyIso=hoy();
+  const dias=(f)=>{const d=new Date(String(f||"").slice(0,10)+"T12:00:00");return Number.isFinite(+d)?Math.floor((new Date(hoyIso+"T12:00:00")-d)/86400000):0;};
+  const mediana=(arr)=>{const a=arr.filter(n=>n>0).sort((x,y)=>x-y);return a.length?a[Math.floor((a.length-1)/2)]:0;};
+  const auditorias=[];
+  const push=(severity,title,detail,tab,entity)=>auditorias.push({severity,title,detail,tab,entity});
+  inventario.forEach(p=>{
+    const stock=Number(p.stock)||0,min=Number(p.stockMin??p.stockmin)||0,costo=Number(p.costo??p.precioCompra)||0,venta=Number(p.pventa??p.precioVenta)||0;
+    if(stock===0)push("alta","Producto agotado: "+p.nombre,"No hay unidades disponibles.","inventario",p);
+    else if(min>0&&stock<=min)push("media","Stock bajo: "+p.nombre,"Quedan "+stock+" unidades; mínimo configurado: "+min+".","inventario",p);
+    if(!venta)push("media","Producto sin precio de venta: "+p.nombre,"No se puede calcular margen ni detectar ventas anormales.","inventario",p);
+    if(costo>0&&venta>0&&venta<=costo)push("alta","Margen negativo o nulo: "+p.nombre,"Costo RD$ "+costo.toLocaleString()+" · Venta RD$ "+venta.toLocaleString()+".","inventario",p);
+    const clas=vetClassifyItem(p.nombre,knowledge,learning);
+    if(clas.confidence>=80&&clas.inventoryCategory&&p.categoria&&clas.inventoryCategory!==p.categoria)push("media","Revisar categoría: "+p.nombre,"Figura como "+p.categoria+", pero VetMake detecta "+clas.inventoryCategory+" ("+clas.confidence+"%).","inventario",p);
+  });
+  const gruposVenta={}; ventas.forEach(v=>{const k=vetSmartNormalize(v.servicio||v.descripcion);if(k)(gruposVenta[k]||(gruposVenta[k]=[])).push(Number(v.total)||0);});
+  ventas.forEach(v=>{const k=vetSmartNormalize(v.servicio||v.descripcion),m=mediana(gruposVenta[k]||[]),n=Number(v.total)||0;if(m>0&&n>0&&(n<m*.5||n>m*1.8))push("media","Precio fuera de patrón: "+(v.servicio||v.descripcion),"Venta RD$ "+n.toLocaleString()+" frente a precio típico RD$ "+m.toLocaleString()+".","ventas",v);if(String(v.fecha||"")>hoyIso)push("alta","Venta con fecha futura",(v.cliente||"Venta")+" aparece con fecha "+v.fecha+".","ventas",v);if(esPagoPendiente(v)&&dias(v.fecha)>30)push("alta","Cobro atrasado: "+(v.cliente||"Sin cliente"),"Lleva "+dias(v.fecha)+" días pendiente; saldo RD$ "+saldoDe(v).toLocaleString()+".","cobros",v);});
+  clientes.forEach(c=>{if(!String(c.telefono||"").trim())push("media","Cliente sin teléfono: "+(c.nombreMascota||c.nombremascota||"Sin mascota"),"Completa el contacto para recordatorios y cobros.","clientes",c);});
+  const clavesCli={}; clientes.forEach(c=>{const k=vetSmartNormalize((c.nombreMascota||c.nombremascota)+" "+(c.nombrePropietario||c.nombrepropietario));if(k)(clavesCli[k]||(clavesCli[k]=[])).push(c);}); Object.values(clavesCli).filter(a=>a.length>1).forEach(a=>push("media","Posibles clientes duplicados",a.length+" registros coinciden con "+(a[0].nombreMascota||a[0].nombremascota)+".","clientes",a[0]));
+  citas.filter(c=>c.fecha>=hoyIso&&c.estado==="pendiente").forEach(c=>push("baja","Cita sin confirmar: "+(c.nombreMascota||"Sin mascota"),c.fecha+" a las "+c.hora+".","agenda",c));
+  const altas=auditorias.filter(a=>a.severity==="alta").length,medias=auditorias.filter(a=>a.severity==="media").length;
+  const clasificados=inventario.map(p=>vetClassifyItem(p.nombre,knowledge,learning));
+  const cobertura=inventario.length?Math.round(clasificados.filter(x=>x.confidence>=75).length/inventario.length*100):0;
+  const productosFarmacia=inventario.filter(p=>vetClassifyItem(p.nombre,knowledge,learning).category==="farmacia").length;
+  const sinMovimiento=inventario.filter(p=>!ventas.some(v=>vetSmartNormalize(v.servicio||v.descripcion).includes(vetSmartNormalize(p.nombre)))).length;
+  const recomendaciones=[];
+  if(sinMovimiento)recomendaciones.push({icon:"📦",title:"Activa inventario inmóvil",text:sinMovimiento+" productos no aparecen en ventas. Revisa exhibición, precio o existencia física.",tab:"inventario"});
+  const recompra=ventas.filter(v=>/nexgard|bravecto|simparic|frontline|alimento|croqueta/i.test(v.servicio||v.descripcion||"")&&dias(v.fecha)>=25&&dias(v.fecha)<=45);
+  if(recompra.length)recomendaciones.push({icon:"🔁",title:"Oportunidad de recompra",text:recompra.length+" compras periódicas están en una ventana probable de reposición. Confirma la necesidad con el cliente antes de contactar.",tab:"seguimientos"});
+  if(auditorias.some(a=>a.title.includes("precio")))recomendaciones.push({icon:"💰",title:"Normaliza precios",text:"Hay precios faltantes o fuera del patrón histórico. Revisarlos mejora márgenes y reportes.",tab:"inventario"});
+  if(!recomendaciones.length)recomendaciones.push({icon:"✅",title:"Operación estable",text:"No detectamos oportunidades urgentes con los datos disponibles. Continúa registrando ventas, costos y existencias.",tab:"dashboard"});
+  async function guardarAprendizaje(){
+    if(!ensenar.input.trim()||!ensenar.canonical.trim())return setMsg("Completa el nombre encontrado y el nombre correcto.");
+    const payload={negocio_id:tenant.negocioId,input_name:ensenar.input.trim(),normalized_input:vetSmartNormalize(ensenar.input),canonical_name:ensenar.canonical.trim(),classification:ensenar.classification,inventory_category:ensenar.inventory_category||null,confidence:100,confirmed_by:getStoredVetMakeSession()?.user?.id};
+    const r=await supaFetch("vet_learning_aliases","POST",payload,"?on_conflict=negocio_id,normalized_input");
+    if(!r||r.error)return setMsg("No se pudo guardar la corrección."); setMsg("✅ VetMake aprendió esta clasificación para tu negocio."); setEnsenar({input:"",canonical:"",classification:"farmacia",inventory_category:"farmaco"}); if(refetchLearning)refetchLearning();
+  }
+  function cambiarTipoAprendizaje(valor){
+    const inv = valor === "farmacia" ? "farmaco" : valor === "alimento" ? "alimento" : valor === "accesorio" ? "accesorio" : "insumo";
+    setEnsenar(x => ({ ...x, classification: valor, inventory_category: inv }));
+  }
+  const tabs=[["resumen","✨ Resumen"],["auditoria","🛡️ Auditoría"],["conocimiento","📚 Conocimiento"],["aprendizaje","🧠 Enseñar"]];
+  const colorSev={alta:"#dc2626",media:"#d97706",baja:"#2563eb"};
+  const card={background:"#fff",border:"1px solid #e2e8f0",borderRadius:14,padding:18};
+  const filtered=(knowledge||[]).filter(k=>!busca.trim()||[k.canonical_name,k.kind,k.active_ingredient,k.therapeutic_class,...(k.aliases||[])].join(" ").toLowerCase().includes(busca.toLowerCase())).slice(0,80);
+  const aprendizajeView = E("div", { style:{...card,maxWidth:720} },
+    E("h3", { style:{margin:"0 0 6px"} }, "Enseñar una corrección"),
+    E("p", { style:{fontSize:12.5,color:C.grisd,lineHeight:1.5} }, "Cuando confirmes un nombre desconocido o mal escrito, VetMake lo recordará únicamente para este negocio."),
+    E("div", { style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:10,marginTop:13} },
+      E("input", { value:ensenar.input,onChange:e=>setEnsenar(x=>({...x,input:e.target.value})),placeholder:"Nombre encontrado" }),
+      E("input", { value:ensenar.canonical,onChange:e=>setEnsenar(x=>({...x,canonical:e.target.value})),placeholder:"Nombre correcto" }),
+      E("select", { value:ensenar.classification,onChange:e=>cambiarTipoAprendizaje(e.target.value) }, [["farmacia","Farmacia"],["alimento","Alimento"],["accesorio","Accesorio"],["insumo","Insumo"],["grooming","Servicio grooming"],["servicio_veterinario","Servicio veterinario"]].map(x=>E("option",{key:x[0],value:x[0]},x[1]))),
+      E("button", { onClick:guardarAprendizaje,style:{border:0,borderRadius:9,background:"#1a6b3a",color:"#fff",fontWeight:850,cursor:"pointer"} }, "Guardar aprendizaje")
+    ),
+    msg && E("div", { style:{marginTop:11,fontSize:12.5,fontWeight:750} }, msg)
+  );
+  return E("div",null,
+    E("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap",marginBottom:18}},E("div",null,E("h2",{style:{margin:0,fontSize:24}},"🧠 Inteligencia VetMake"),E("p",{style:{margin:"5px 0 0",color:C.grisd,fontSize:13}},"Auditoría, conocimiento veterinario y decisiones explicables sin costo por consulta.")),E("div",{style:{background:"#ecfdf5",color:"#166534",borderRadius:999,padding:"7px 12px",fontWeight:800,fontSize:12}},knowledgeLoaded?(knowledge.length+" conceptos · "+learning.length+" aprendizajes"):"Cargando cerebro…")),
+    E("div",{style:{background:"#fff7ed",border:"1px solid #fdba74",borderRadius:11,padding:"10px 13px",fontSize:12,color:"#9a3412",marginBottom:15}},"⚕️ VetMake organiza datos, detecta patrones y propone revisiones. No diagnostica ni sustituye el criterio del médico veterinario."),
+    E("div",{style:{display:"flex",gap:7,flexWrap:"wrap",marginBottom:17}},tabs.map(t=>E("button",{key:t[0],onClick:()=>setSeccion(t[0]),style:{border:0,borderRadius:9,padding:"9px 13px",fontWeight:800,cursor:"pointer",background:seccion===t[0]?"#1a6b3a":"#eef2f5",color:seccion===t[0]?"#fff":"#475569"}},t[1]))),
+    seccion==="resumen"&&E("div",null,
+      E("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:15}},[[altas,"Alertas críticas","#dc2626"],[medias,"Revisiones","#d97706"],[cobertura+"%","Inventario reconocido","#1a6b3a"],[productosFarmacia,"Productos de farmacia","#2563eb"],[knowledge.length,"Conceptos globales","#7c3aed"]].map(x=>E("div",{key:x[1],style:card},E("div",{style:{fontSize:25,fontWeight:900,color:x[2]}},x[0]),E("div",{style:{fontSize:11.5,color:C.grisd,marginTop:4}},x[1])))),
+      E("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:13}},recomendaciones.map((r,i)=>E("div",{key:i,style:card},E("div",{style:{fontWeight:850,fontSize:15}},r.icon+" "+r.title),E("div",{style:{fontSize:13,color:C.grisd,lineHeight:1.5,margin:"8px 0 12px"}},r.text),E("button",{onClick:()=>setTab(r.tab),style:{border:0,borderRadius:8,padding:"7px 11px",background:"#e8f5ed",color:"#166534",fontWeight:800,cursor:"pointer"}},"Revisar →"))))),
+    seccion==="auditoria"&&E("div",null,auditorias.length?auditorias.slice(0,120).map((a,i)=>E("div",{key:i,style:{...card,borderLeft:"4px solid "+colorSev[a.severity],marginBottom:9,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}},E("div",{style:{flex:1,minWidth:220}},E("div",{style:{fontWeight:850,fontSize:13.5}},a.title),E("div",{style:{fontSize:12,color:C.grisd,marginTop:3}},a.detail)),E("button",{onClick:()=>setTab(a.tab),style:{border:0,borderRadius:8,padding:"7px 11px",cursor:"pointer",fontWeight:750}},"Resolver"))):E("div",{style:card},"✅ No hay alertas con los datos actuales.")),
+    seccion==="conocimiento"&&E("div",null,E("div",{style:{...card,marginBottom:12}},E("input",{value:consulta,onChange:e=>setConsulta(e.target.value),placeholder:"Prueba un nombre: Nexgar Spectra 15 kg, collar rojo…",style:{width:"100%",padding:11,border:"1px solid #cbd5e1",borderRadius:9}}),resultado&&E("div",{style:{marginTop:12,padding:12,background:resultado.confidence>=75?"#ecfdf5":"#fff7ed",borderRadius:9}},E("div",{style:{fontWeight:850}},resultado.canonical+" · "+resultado.category),E("div",{style:{fontSize:12,marginTop:4}},"Confianza: "+resultado.confidence+"% · "+resultado.reason),resultado.knowledge?.requires_vet_review&&E("div",{style:{fontSize:11.5,color:"#b45309",marginTop:5}},"⚕️ Requiere revisión veterinaria")),E("input",{value:busca,onChange:e=>setBusca(e.target.value),placeholder:"Buscar en la base de conocimiento…",style:{width:"100%",padding:10,border:"1px solid #cbd5e1",borderRadius:9,marginTop:12}})),E("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:9}},filtered.map(k=>E("div",{key:k.id,style:card},E("div",{style:{fontWeight:850}},k.canonical_name),E("div",{style:{fontSize:11.5,color:"#2563eb",marginTop:3}},k.kind+(k.active_ingredient?" · "+k.active_ingredient:"")),E("div",{style:{fontSize:11.5,color:C.grisd,marginTop:5}},(k.aliases||[]).slice(0,4).join(" · ")))))),
+    seccion==="aprendizaje"&&aprendizajeView
+  );
+}
+
 // ─── TAB SERVICIOS ──────────────────────────────────────────────────────────
-function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTarifasVet, inventario = [], setInventario }) {
+function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTarifasVet, inventario = [], setInventario, knowledge = [], learning = [] }) {
   const C = { verde: "#1a6b3a", azul: "#1a4fa0", grisd: "#5a6472", rojo: "#e53e3e", gris: "#f8f9fa" };
   const [seccion, setSeccion] = React.useState("grooming");
   const [editandoId, setEditandoId] = React.useState(null);
@@ -18491,6 +18618,13 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
   }
   function categoriaImportada(valor, nombre) {
     var s = (String(valor || "") + " " + String(nombre || "")).toLowerCase();
+    var smart = vetClassifyItem(nombre, knowledge, learning);
+    if (smart.confidence >= 75) {
+      if (smart.category === "farmacia") return "farmacia";
+      if (["alimento","accesorio","insumo"].includes(smart.category)) return "tienda";
+      if (smart.category === "servicio_veterinario") return "veterinaria";
+      if (smart.category === "grooming") return "grooming";
+    }
     if (/nexgard|bravecto|simparic|frontline|antibi[oó]tic|antiparasit|desparasitante|medicamento|f[aá]rmaco|farmacia|vacuna\s*(frasco|dosis)|amoxic|cefalex|metronid|prednis|meloxic|ivermect|praziquant|ketocon|enroflox|vitamina|suplemento|shampoo medicado/.test(s)) return "farmacia";
     if (/producto|art[ií]culo|mercanc[ií]a|tienda|pet ?shop|alimento|comida|croqueta|royal canin|hills|purina|pedigree|whiskas|collar|correa|arn[eé]s|juguete|cama|comedero|bebedero|transportadora|cepillo|perfume|colonia|shampoo(?! medicado)/.test(s)) return "tienda";
     if (/veter|consulta|vacunaci[oó]n|cirug|laborat|test |prueba |desparasitaci[oó]n|radiograf|sonograf|hemograma|profilaxis|hospitaliza|curaci[oó]n/.test(s)) return "veterinaria";
@@ -18517,8 +18651,9 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
     var precio = precioUnit || (total > 0 && cantidad > 1 ? total / cantidad : total);
     var categoriaRaw = busca(["categoria", "area", "tipo", "departamento", "familia"]);
     var categoria = categoriaImportada(categoriaRaw + " " + Object.keys(normal).join(" "), nombre);
+    var smart = vetClassifyItem(nombre, knowledge, learning);
     var invalido = /^(descuento|itbis|impuesto|total|subtotal|abono|saldo|pago|efectivo|tarjeta|transferencia)$/i.test(nombre) || nombre.length < 2;
-    return { nombre, precio, comision: numeroImportado(busca(["comision", "pago empleado", "incentivo"])), categoria, invCategoria: categoriaInventario(nombre, categoria), incluir: !invalido, referencia: precio > 0 ? "Precio detectado en la hoja" : "Precio pendiente de inferir" };
+    return { nombre, precio, comision: numeroImportado(busca(["comision", "pago empleado", "incentivo"])), categoria, invCategoria: smart.inventoryCategory || categoriaInventario(nombre, categoria), confianza:smart.confidence, incluir: !invalido, referencia: (precio > 0 ? "Precio detectado · " : "Precio pendiente · ") + smart.confidence + "%: " + smart.reason };
   }
   function expandirElemento(s) {
     var partes = String(s.nombre || "").split(/\s+\+\s+/).map(limpiarNombreImportado).filter(Boolean);
@@ -18574,7 +18709,7 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
         var comisiones = arr.map(function(x){return numeroImportado(x.comision);}).filter(function(n){return n > 0;}).sort(function(a,b){return a-b;});
         if (precios.length) base.precio = precios[Math.floor((precios.length - 1) / 2)];
         if (comisiones.length) base.comision = comisiones[Math.floor((comisiones.length - 1) / 2)];
-        base.referencia = precios.length > 1 ? "Precio típico inferido de " + precios.length + " ventas" : precios.length === 1 ? "Precio detectado en una venta" : "No encontramos un monto confiable";
+        base.referencia = (precios.length > 1 ? "Precio típico inferido de " + precios.length + " ventas" : precios.length === 1 ? "Precio detectado en una venta" : "No encontramos un monto confiable") + (base.confianza ? " · Clasificación " + base.confianza + "%" : "");
         base.incluir = numeroImportado(base.precio) > 0;
         return base;
       }).sort(function(a,b){ return (a.categoria > b.categoria ? 1 : -1) || a.nombre.localeCompare(b.nombre); });
