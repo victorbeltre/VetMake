@@ -10,7 +10,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260825-service-import-v4";
+      var V = "20260825-service-advisor-v5";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -18201,6 +18201,7 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
   const [analizando, setAnalizando] = React.useState(false);
   const [importados, setImportados] = React.useState([]);
   const [importMsg, setImportMsg] = React.useState("");
+  const [mostrandoSugerencias, setMostrandoSugerencias] = React.useState(false);
 
   const tarifas = seccion === "grooming" ? tarifasGrooming : tarifasVet;
   const setTarifas = seccion === "grooming" ? setTarifasGrooming : setTarifasVet;
@@ -18268,7 +18269,7 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
   async function leerServiciosArchivo(e) {
     var archivos = Array.from(e.target.files || []); e.target.value = "";
     if (!archivos.length) return;
-    setAnalizando(true); setImportMsg("");
+    setAnalizando(true); setImportMsg(""); setMostrandoSugerencias(false);
     try {
       var encontrados = [];
       for (const file of archivos) {
@@ -18301,7 +18302,47 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
     var ahora = Date.now();
     setTarifasGrooming(function(prev) { return prev.concat(elegidos.filter(function(s){return s.categoria === "grooming";}).map(function(s,i){return {id:"gi"+(ahora+i),nombre:s.nombre.trim(),precio:numeroImportado(s.precio),comision:numeroImportado(s.comision)};})); });
     setTarifasVet(function(prev) { return prev.concat(elegidos.filter(function(s){return s.categoria === "veterinaria";}).map(function(s,i){return {id:"vi"+(ahora+i),nombre:s.nombre.trim(),precio:numeroImportado(s.precio),comision:numeroImportado(s.comision)};})); });
-    setImportMsg("Se integraron " + elegidos.length + " servicios correctamente."); setImportados([]);
+    setImportMsg("Se integraron " + elegidos.length + " servicios correctamente."); setImportados([]); setMostrandoSugerencias(false);
+  }
+  const catalogoSugerido = [
+    {categoria:"grooming",grupo:"Baños por tamaño",nombre:"Baño — perro mini (1–10 lb)",referencia:"Tarifa base por tamaño"},
+    {categoria:"grooming",grupo:"Baños por tamaño",nombre:"Baño — perro pequeño (11–25 lb)",referencia:"Tarifa base por tamaño"},
+    {categoria:"grooming",grupo:"Baños por tamaño",nombre:"Baño — perro mediano (26–45 lb)",referencia:"Tarifa base por tamaño"},
+    {categoria:"grooming",grupo:"Baños por tamaño",nombre:"Baño — perro grande (46–70 lb)",referencia:"Tarifa base por tamaño"},
+    {categoria:"grooming",grupo:"Baños por tamaño",nombre:"Baño — perro gigante (más de 70 lb)",referencia:"Cotizar según pelaje y conducta"},
+    {categoria:"grooming",grupo:"Peluquería",nombre:"Baño y corte completo",referencia:"Separar por tamaño o raza"},
+    {categoria:"grooming",grupo:"Peluquería",nombre:"Corte de raza / estilismo",referencia:"Cotizar por complejidad"},
+    {categoria:"grooming",grupo:"Tratamientos",nombre:"Deslanado",referencia:"Suplemento según tamaño y pelaje"},
+    {categoria:"grooming",grupo:"Tratamientos",nombre:"Desenredado y retiro de nudos",referencia:"Cobrar por tiempo adicional"},
+    {categoria:"grooming",grupo:"Tratamientos",nombre:"Baño medicado",referencia:"Validar producto e indicación"},
+    {categoria:"grooming",grupo:"Tratamientos",nombre:"Baño antipulgas y garrapatas",referencia:"Validar producto y peso"},
+    {categoria:"grooming",grupo:"Servicios rápidos",nombre:"Corte de uñas",referencia:"Servicio individual o incluido"},
+    {categoria:"grooming",grupo:"Servicios rápidos",nombre:"Limpieza de oídos",referencia:"Servicio individual o incluido"},
+    {categoria:"grooming",grupo:"Servicios rápidos",nombre:"Cepillado dental cosmético",referencia:"No sustituye profilaxis veterinaria"},
+    {categoria:"grooming",grupo:"Servicios rápidos",nombre:"Vaciado de glándulas anales",referencia:"Solo con personal capacitado"},
+    {categoria:"grooming",grupo:"Otros",nombre:"Grooming para gatos",referencia:"Cotizar según pelaje y conducta"},
+    {categoria:"grooming",grupo:"Otros",nombre:"Recogida y entrega de mascota",referencia:"Tarifa por zona"},
+    {categoria:"veterinaria",grupo:"Atención clínica",nombre:"Consulta veterinaria general",referencia:"Servicio esencial"},
+    {categoria:"veterinaria",grupo:"Atención clínica",nombre:"Consulta de emergencia",referencia:"Diferenciar horario regular/nocturno"},
+    {categoria:"veterinaria",grupo:"Prevención",nombre:"Plan de vacunación canina",referencia:"Definir vacunas incluidas"},
+    {categoria:"veterinaria",grupo:"Prevención",nombre:"Plan de vacunación felina",referencia:"Definir vacunas incluidas"},
+    {categoria:"veterinaria",grupo:"Prevención",nombre:"Desparasitación interna",referencia:"Precio según peso y producto"},
+    {categoria:"veterinaria",grupo:"Prevención",nombre:"Control de pulgas y garrapatas",referencia:"Precio según peso y producto"},
+    {categoria:"veterinaria",grupo:"Diagnóstico",nombre:"Hemograma",referencia:"Validar capacidad de laboratorio"},
+    {categoria:"veterinaria",grupo:"Diagnóstico",nombre:"Química sanguínea",referencia:"Definir panel incluido"},
+    {categoria:"veterinaria",grupo:"Diagnóstico",nombre:"Radiografía",referencia:"Por vista o estudio"},
+    {categoria:"veterinaria",grupo:"Diagnóstico",nombre:"Sonografía",referencia:"Por estudio"},
+    {categoria:"veterinaria",grupo:"Procedimientos",nombre:"Profilaxis dental",referencia:"Aclarar anestesia y analíticas"},
+    {categoria:"veterinaria",grupo:"Procedimientos",nombre:"Esterilización / castración",referencia:"Separar especie, sexo y peso"},
+    {categoria:"veterinaria",grupo:"Procedimientos",nombre:"Curación y cambio de vendaje",referencia:"Según complejidad e insumos"},
+    {categoria:"veterinaria",grupo:"Hospitalización",nombre:"Hospitalización por día",referencia:"Definir qué incluye"},
+    {categoria:"veterinaria",grupo:"Otros",nombre:"Certificado de salud",referencia:"Según requisitos aplicables"},
+    {categoria:"veterinaria",grupo:"Otros",nombre:"Hotel / hospedaje por noche",referencia:"Separar por tamaño"}
+  ];
+  function abrirSugerencias() {
+    setMostrandoSugerencias(true);
+    setImportados(catalogoSugerido.map(function(s){ return {...s,precio:"",comision:"",incluir:false}; }));
+    setImportMsg("Selecciona los servicios apropiados para tu negocio y coloca tus propios precios y comisiones. Los rangos de peso son una plantilla editable.");
   }
 
   function comisionLabel(t) {
@@ -18320,6 +18361,7 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
         React.createElement("div", { style: { fontSize: 13, color: C.grisd, marginTop: 4 } }, "Edita precios y comisiones. Los cambios se reflejan inmediatamente en ventas.")
       ),
       React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+        React.createElement("button", { onClick: abrirSugerencias, style: { background: "#7c3aed", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, "✨ Recomendar servicios"),
         React.createElement("label", { style: { background: C.azul, color: "#fff", borderRadius: 8, padding: "8px 16px", cursor: analizando ? "wait" : "pointer", fontWeight: 700, fontSize: 13 } }, analizando ? "⏳ Analizando…" : "📄 Importar catálogo", React.createElement("input", { type: "file", multiple: true, accept: ".xlsx,.xls,.csv,.pdf,.docx,.txt", disabled: analizando, onChange: leerServiciosArchivo, style: { display: "none" } })),
         React.createElement("button", { onClick: () => { setAgregando(true); setEditandoId(null); }, style: { background: C.verde, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, "+ Agregar servicio"),
         React.createElement("button", { onClick: resetearDefaults, style: { background: "#f1f5f9", color: C.grisd, border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 12 } }, "\u2139 Sin defaults heredados")
@@ -18330,16 +18372,18 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
       React.createElement("div", { style: { fontWeight: 800, color: C.azul, marginBottom: 6 } }, "🔎 Revisión de la importación"),
       React.createElement("div", { style: { fontSize: 12, color: C.grisd, marginBottom: importados.length ? 12 : 0 } }, importMsg, " Nada se guarda hasta que confirmes."),
       importados.length > 0 && React.createElement("div", { style: { overflowX: "auto" } }, React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", background: "#fff" } },
-        React.createElement("thead", null, React.createElement("tr", null, ["Usar", "Servicio detectado", "Categoría", "Precio (RD$)", "Comisión"].map(function(h){return React.createElement("th", { key:h, style:thStyle }, h);}))),
+        React.createElement("thead", null, React.createElement("tr", null, ["Usar", "Servicio detectado", "Categoría", "Precio (RD$)", "Comisión", "Orientación"].map(function(h){return React.createElement("th", { key:h, style:thStyle }, h);}))),
         React.createElement("tbody", null, importados.map(function(s,i){ return React.createElement("tr", {key:i},
           React.createElement("td", {style:tdStyle}, React.createElement("input", {type:"checkbox",checked:s.incluir,onChange:function(e){actualizarImportado(i,"incluir",e.target.checked);}})),
           React.createElement("td", {style:tdStyle}, React.createElement("input", {value:s.nombre,onChange:function(e){actualizarImportado(i,"nombre",e.target.value);},style:{width:"100%",padding:7,border:"1px solid #cbd5e1",borderRadius:6}})),
           React.createElement("td", {style:tdStyle}, React.createElement("select", {value:s.categoria,onChange:function(e){actualizarImportado(i,"categoria",e.target.value);},style:{padding:7,border:"1px solid #cbd5e1",borderRadius:6}}, React.createElement("option",{value:"grooming"},"Grooming"),React.createElement("option",{value:"veterinaria"},"Veterinaria"))),
           React.createElement("td", {style:tdStyle}, React.createElement("input", {type:"number",value:s.precio,onChange:function(e){actualizarImportado(i,"precio",e.target.value);},style:{width:110,padding:7,border:"1px solid #cbd5e1",borderRadius:6}})),
-          React.createElement("td", {style:tdStyle}, React.createElement("input", {type:"number",value:s.comision,onChange:function(e){actualizarImportado(i,"comision",e.target.value);},style:{width:100,padding:7,border:"1px solid #cbd5e1",borderRadius:6}}))
+          React.createElement("td", {style:tdStyle}, React.createElement("input", {type:"number",value:s.comision,onChange:function(e){actualizarImportado(i,"comision",e.target.value);},style:{width:100,padding:7,border:"1px solid #cbd5e1",borderRadius:6}})),
+          React.createElement("td", {style:{...tdStyle,fontSize:11,color:C.grisd,minWidth:160}}, s.referencia || "Revisar antes de guardar")
         );}))
       )),
-      importados.length > 0 && React.createElement("div", {style:{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}, React.createElement("button",{onClick:function(){setImportados([]);setImportMsg("");},style:{border:"none",borderRadius:7,padding:"9px 14px",cursor:"pointer"}},"Cancelar"),React.createElement("button",{onClick:confirmarImportacion,style:{background:C.verde,color:"#fff",border:"none",borderRadius:7,padding:"9px 16px",fontWeight:800,cursor:"pointer"}},"✓ Confirmar e integrar"))
+      mostrandoSugerencias && React.createElement("div", {style:{fontSize:11,lineHeight:1.5,color:C.grisd,marginTop:10}}, "Base orientativa: servicios publicados por clínicas y pet shops dominicanos. VetMake no fija precios de mercado; cada negocio debe calcularlos según costos, zona, tiempo, pelaje, conducta, insumos y personal capacitado."),
+      importados.length > 0 && React.createElement("div", {style:{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}, React.createElement("button",{onClick:function(){setImportados([]);setImportMsg("");setMostrandoSugerencias(false);},style:{border:"none",borderRadius:7,padding:"9px 14px",cursor:"pointer"}},"Cancelar"),React.createElement("button",{onClick:confirmarImportacion,style:{background:C.verde,color:"#fff",border:"none",borderRadius:7,padding:"9px 16px",fontWeight:800,cursor:"pointer"}},"✓ Confirmar e integrar"))
     ),
 
     // Selector de sección
