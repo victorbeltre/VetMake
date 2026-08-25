@@ -10,7 +10,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260825-financial-plans-v9";
+      var V = "20260825-hide-whatsapp-inbox-v10";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -2103,7 +2103,6 @@ const TABS = [
     { id: "vozia", icon: "\u{1F3A4}", label: "Voz IA" },
     { id: "llamadas", icon: "\u{1F4DE}", label: "Llamadas Sof\xEDa" },
   ] : []),
-  { id: "whatsapp", icon: "\u{1F4AC}", label: "WhatsApp" },
   { id: "caja", icon: "\u{1F9FE}", label: "Cierre de caja" },
   ...(VETMAKE_ENABLE_LEGACY_INTEGRATIONS ? [{ id: "candidatos", icon: "\u{1F9D1}‍⚕️", label: "Candidatos" }] : []),
   { id: "notificaciones", icon: "\u{1F514}", label: "Notificaciones" }
@@ -7568,7 +7567,7 @@ function TutorialVetMake({ setTab, tenant }) {
     {icon:"💵",titulo:"Cobros y saldos pendientes",desc:"Configura las formas de pago y prueba un cobro completo y un abono.",tab:"cobros",tareas:["Efectivo, tarjeta y transferencia", "Registrar un abono", "Consultar saldo pendiente", "Emitir constancia del cobro"]},
     {icon:"📄",titulo:"Facturación",desc:"Genera una factura de prueba y revisa identidad, impuestos, conceptos y totales antes de usarla con clientes.",tab:"facturas",tareas:["Datos fiscales del negocio", "Datos del cliente", "Servicios, productos e impuestos", "Vista final y descarga"]},
     {icon:"🔔",titulo:"Seguimientos automáticos",desc:"Programa recordatorios de vacunas, desparasitación, controles y próximas visitas.",tab:"seguimientos",tareas:["Elegir tipo de seguimiento", "Definir próxima fecha", "Validar teléfono del cliente", "Marcar como completado y reprogramar"]},
-    {icon:"💬",titulo:"Mensajes de WhatsApp",desc:"Revisa las plantillas y prueba el mensaje que recibirá el cliente para citas y seguimientos.",tab:"whatsapp",tareas:["Número comercial correcto", "Saludo e identidad del negocio", "Plantillas de cita y recordatorio", "Prueba de apertura en WhatsApp"]},
+    {icon:"💬",titulo:"Mensajes al cliente",desc:"Prueba los enlaces que abren WhatsApp desde citas, cobros y seguimientos sin conectar la cuenta del negocio a una bandeja no oficial.",tab:"seguimientos",tareas:["Número comercial correcto", "Saludo e identidad del negocio", "Plantillas de cita y recordatorio", "Prueba de apertura en WhatsApp"]},
     {icon:"💸",titulo:"Gastos y cuentas del negocio",desc:"Define cómo registrar alquiler, servicios, compras, transporte y otros egresos.",tab:"gastos",tareas:["Categorías habituales", "Proveedor y comprobante", "Forma de pago", "Registrar un gasto de prueba"]},
     {icon:"👨‍💼",titulo:"Nómina y comisiones",desc:"Confirma salarios, descuentos y comisiones antes del primer cierre de nómina.",tab:"nomina",tareas:["Salario o modalidad de pago", "Comisión por servicio", "Descuentos autorizados", "Revisión del pago neto"]},
     {icon:"🧾",titulo:"Cierre de caja",desc:"Practica el cierre diario y compara lo registrado con el efectivo y los pagos electrónicos.",tab:"caja",tareas:["Fondo inicial", "Ventas por forma de pago", "Gastos o retiros de caja", "Diferencias y cierre final"]},
@@ -8409,7 +8408,6 @@ const TABS_PORTAL_CAJA = [
   { id: "facturas", icono: "\u{1F4C4}", label: "Facturas" },
   { id: "agenda", icono: "\u{1F4C5}", label: "Agenda" },
   { id: "seguimientos", icono: "\u{1F514}", label: "Seguimientos" },
-  { id: "whatsapp", icono: "\u{1F4AC}", label: "WhatsApp" },
   { id: "notificaciones", icono: "\u{1F43E}", label: "Clientes nuevos" }
 ];
 function PortalCaja({ session, tenant, onLogout, ventas, setVentas, deleteVenta, clientes, setClientes,
@@ -8425,7 +8423,7 @@ function PortalCaja({ session, tenant, onLogout, ventas, setVentas, deleteVenta,
   // ("clientes", "reportes"…) que aquí no existen: eso dejaba la pantalla en
   // blanco. Se traduce a lo más parecido de este portal y si no, no se mueve.
   const setTab = (id) => {
-    const equivalencias = { clientes: "ventas", crm: "ventas", dashboard: "ventas", vozia: "whatsapp", llamadas: "whatsapp" };
+    const equivalencias = { clientes: "ventas", crm: "ventas", dashboard: "ventas", vozia: "ventas", llamadas: "ventas", whatsapp: "ventas" };
     const destino = equivalencias[id] || id;
     setTabRaw((actual) => TABS_CAJA.some((t) => t.id === destino) ? destino : actual);
   };
@@ -8474,7 +8472,6 @@ function PortalCaja({ session, tenant, onLogout, ventas, setVentas, deleteVenta,
       tab === "agenda" && E(Agenda, { citas, setCitas, deleteCita, clientes: clientesCaja, ventas, setVentas,
         tarifasGrooming, tarifasVet, setTab, refetchCitasAgenda: refetchCitas }),
       tab === "seguimientos" && E(Seguimientos, { seguimientos, setSeguimientos, clientes: clientesCaja, ventas }),
-      tab === "whatsapp" && E(WhatsAppInbox, null),
       tab === "notificaciones" && E(TabNotificaciones, { clientes, setClientes, notifLeidas,
         marcarNotifLeida, marcarNotifLeidas, desmarcarNotif, setTab,
         setCrmClienteInicial: (d) => setClienteInicial(d ? { ...d, modo: "ventaCliente" } : null) })),
@@ -9061,7 +9058,6 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
     tab === "configuracion" && React.createElement(ConfiguracionNegocio, { tenant, onTenantChange, empleados, setEmpleados, deleteEmpleado, refetchEmpleados, onGoServicios: () => setTab("servicios") }),
     tab === "vozia" && React.createElement(VozIA, null),
     tab === "llamadas" && React.createElement(Llamadas, null),
-    tab === "whatsapp" && React.createElement(WhatsAppInbox, null),
     tab === "cobros" && React.createElement(Cobros, { ventas, setVentas, clientes: todosClientes, setTab, setCrmClienteInicial }),
     tab === "planes" && React.createElement(Planes, { paquetes, setPaquetes, clientes: todosClientes, ventas, setVentas, tarifasGrooming, tarifasVet, gastos, pagosNom, tenant }),
     tab === "caja" && React.createElement(CierreCaja, { ventas, gastos }),
