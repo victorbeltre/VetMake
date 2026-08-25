@@ -10,7 +10,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260825-complete-onboarding-v6";
+      var V = "20260825-inventory-import-v7";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -7437,7 +7437,7 @@ function VozIA() {
 const VETMAKE_IMPORT_MODULES = {
   ventas: { label: "Ventas y facturación", icon: "💰", table: "pc_ventas", words: ["venta", "factura", "ingreso", "servicio", "total", "forma de pago"] },
   clientes: { label: "Clientes / CRM", icon: "🐾", table: "pc_clientes", words: ["cliente", "crm", "mascota", "propietario", "telefono", "raza"] },
-  inventario: { label: "Inventario y proveedores", icon: "📦", table: "pc_inventario", words: ["inventario", "producto", "stock", "existencia", "proveedor", "precio venta"] },
+  inventario: { label: "Inventario y proveedores", icon: "📦", table: "pc_inventario", words: ["inventario", "producto", "productos", "articulo", "articulos", "item", "mercancia", "stock", "existencia", "existencias", "cantidad", "disponible", "balance", "saldo", "proveedor", "suplidor", "costo", "precio compra", "precio venta", "pvp", "unidad", "codigo", "referencia", "almacen"] },
   gastos: { label: "Gastos y compras", icon: "💸", table: "pc_gastos", words: ["gasto", "compra", "egreso", "proveedor", "monto", "categoria"] },
   empleados: { label: "Empleados", icon: "👥", table: "pc_empleados", words: ["empleado", "personal", "cargo", "salario", "mensualidad", "comision"] },
   nomina: { label: "Nómina", icon: "🧾", table: "pc_pagos", words: ["nomina", "pago empleado", "mensualidad", "descuento", "comisiones", "mes"] },
@@ -7467,8 +7467,20 @@ function vetImportNumber(v) {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   const s = String(v == null ? "" : v).replace(/[^0-9,.-]/g, "");
   if (!s) return 0;
-  const normalized = s.includes(",") && !s.includes(".") ? s.replace(",", ".") : s.replace(/,/g, "");
+  let normalized = s;
+  if (s.includes(",") && s.includes(".")) normalized = s.lastIndexOf(",") > s.lastIndexOf(".") ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+  else if (s.includes(",")) normalized = /^-?\d{1,3}(,\d{3})+$/.test(s) ? s.replace(/,/g, "") : s.replace(",", ".");
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) normalized = s.replace(/\./g, "");
   return Number(normalized) || 0;
+}
+function vetImportCategory(raw, nombre) {
+  const s=vetImportNorm((raw||"")+" "+(nombre||""));
+  if (/alimento|comida|croqueta|concentrado|lata|snack|premio|nutricion|dieta/.test(s)) return "alimento";
+  if (/accesorio|collar|correa|arnes|juguete|cama|plato|transportadora|ropa/.test(s)) return "accesorio";
+  if (/insumo|shampoo|champu|acondicionador|perfume|colonia|gasa|jeringa|guante|algodon|desinfectante|limpieza/.test(s)) return "insumo";
+  if (/papeleria|papel|factura|recibo|tinta|folder|etiqueta/.test(s)) return "papeleria";
+  if (/farmaco|farmacia|medicamento|medicina|vacuna|antibiotico|antiparasitario|tableta|capsula|jarabe|pipeta|spray|mg|ml/.test(s)) return "farmaco";
+  return "otro";
 }
 function vetImportDate(v) {
   if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0, 10);
@@ -7488,10 +7500,34 @@ function vetDetectModule(sheetName, rows) {
   let best = "omitir", score = 0;
   Object.entries(VETMAKE_IMPORT_MODULES).forEach(([id, cfg]) => {
     if (id === "omitir") return;
-    const s = cfg.words.reduce((n, w) => n + (hay.includes(vetImportNorm(w)) ? 1 : 0), 0);
+    let s = cfg.words.reduce((n, w) => n + (hay.includes(vetImportNorm(w)) ? 1 : 0), 0);
+    if (id === "inventario") {
+      if (/inventario|existencia|stock|almacen/.test(hay)) s += 5;
+      if (/(producto|articulo|item|descripcion)/.test(hay) && /(cantidad|stock|existencia|balance|saldo|disponible)/.test(hay)) s += 6;
+      if (/(costo|precio compra)/.test(hay) && /(precio venta|pvp|venta)/.test(hay)) s += 3;
+    }
     if (s > score) { best = id; score = s; }
   });
   return score ? best : "omitir";
+}
+function vetSheetToRows(ws) {
+  const matrix = XLSX.utils.sheet_to_json(ws, {header:1,defval:"",raw:true,blankrows:false});
+  if (!matrix.length) return {rows:[],headerRow:0};
+  const headerWords = ["producto","articulo","item","descripcion","nombre","codigo","referencia","sku","stock","existencia","cantidad","balance","saldo","disponible","costo","precio","pvp","proveedor","suplidor","cliente","mascota","fecha","total","servicio"];
+  let headerRow = 0, best = -1;
+  matrix.slice(0,25).forEach((row,i) => {
+    const cells = row.map(v=>vetImportNorm(v)).filter(Boolean);
+    const keywords = cells.reduce((n,c)=>n+headerWords.filter(w=>c===w||c.includes(w)).length,0);
+    const score = keywords*8 + Math.min(cells.length,12) - (cells.length===1?5:0);
+    if (score>best) {best=score;headerRow=i;}
+  });
+  const seen = {};
+  const headers = (matrix[headerRow]||[]).map((v,i)=>{
+    let h=String(v||"").trim()||("Columna "+(i+1)); const key=vetImportNorm(h)||("columna "+i);
+    seen[key]=(seen[key]||0)+1; return seen[key]>1?h+" "+seen[key]:h;
+  });
+  const rows = matrix.slice(headerRow+1).filter(r=>r.some(v=>String(v??"").trim()!=="")).map(r=>Object.fromEntries(headers.map((h,i)=>[h,r[i]??""])));
+  return {rows,headerRow};
 }
 function vetMapImportRow(module, row, idx, stamp) {
   const idNum = stamp + idx;
@@ -7500,7 +7536,12 @@ function vetMapImportRow(module, row, idx, stamp) {
   const date = aliases => vetImportDate(vetImportValue(row, aliases, ""));
   if (module === "ventas") return { id:idNum, fecha:date(["fecha","date"]), cliente:txt(["cliente / mascota","cliente","mascota","nombre"]), area:txt(["area","departamento"],"general").toLowerCase(), servicio:txt(["servicio / descripcion","servicio","descripcion","concepto"]), total:num(["total (rd$)","total","monto","importe"]), descuento:num(["descuento"]), comision:num(["comision"]), formapago:txt(["forma de pago","metodo de pago","pago"]), recibidopor:txt(["recibido por","cajero","empleado"]), notas:txt(["notas","observaciones"]) };
   if (module === "clientes") return { id:idNum, nombremascota:txt(["mascota","nombre mascota","cliente / mascota","nombre"]), especie:txt(["especie"]), raza:txt(["raza"]), sexo:txt(["sexo"]), tamano:txt(["tamano","tamaño"]), nombrepropietario:txt(["propietario","dueno","dueño","cliente"]), telefono:txt(["telefono","celular","whatsapp"]), email:txt(["email","correo"]), direccion:txt(["direccion"]), alergias:txt(["alergias"]), condiciones:txt(["condiciones","diagnostico"]), notas:txt(["notas","observaciones"]), fecharegistro:date(["fecha registro","fecha"]) };
-  if (module === "inventario") return { id:"imp_inv_"+idNum, nombre:txt(["producto","nombre","articulo","item"]), categoria:txt(["categoria","tipo"],"general"), stock:num(["stock actual","stock","existencia","cantidad"]), stockmin:num(["stock minimo","minimo"]), preciocompra:num(["precio compra","costo","costo unitario"]), precioventa:num(["precio venta","venta"]), proveedor:txt(["proveedor","suplidor"]), fechaentrada:date(["fecha entrada","fecha"]), notas:txt(["notas","observaciones"]) };
+  if (module === "inventario") {
+    const codigo=txt(["codigo","código","sku","referencia","ref","codigo de barras","barcode"]), unidad=txt(["unidad","presentacion","presentación","empaque","formato"]), lote=txt(["lote"]), vence=txt(["vencimiento","fecha vencimiento","fecha de vencimiento","vence","caducidad"]);
+    const notasBase=txt(["notas","observaciones","detalle"]), extras=[codigo&&"Código: "+codigo,unidad&&"Presentación: "+unidad,lote&&"Lote: "+lote,vence&&"Vence: "+vence].filter(Boolean).join(" · ");
+    const nombre=txt(["producto","nombre producto","descripcion producto","descripción producto","articulo","artículo","item","mercancia","mercancía","descripcion","descripción","nombre comercial"]), categoriaRaw=txt(["categoria","categoría","familia","linea","línea","departamento","tipo producto","tipo"]);
+    return { id:"imp_inv_"+idNum, nombre, categoria:vetImportCategory(categoriaRaw,nombre), stock:num(["stock actual","stock disponible","inventario actual","existencia actual","existencias","existencia","cantidad disponible","disponible","balance","saldo","cantidad","unidades"]), stockmin:num(["stock minimo","stock mínimo","existencia minima","existencia mínima","punto de reorden","punto reorden","minimo","mínimo"]), preciocompra:num(["precio compra","precio de compra","costo unitario","coste unitario","ultimo costo","último costo","costo promedio","costo","coste"]), precioventa:num(["precio venta","precio de venta","pvp","precio publico","precio público","precio consumidor","venta","precio"]), proveedor:txt(["proveedor","suplidor","distribuidor","laboratorio","fabricante"]), fechaentrada:date(["fecha entrada","ultima entrada","última entrada","fecha compra","fecha"]), notas:[notasBase,extras,categoriaRaw&&"Categoría original: "+categoriaRaw].filter(Boolean).join(" · ") };
+  }
   if (module === "gastos") return { id:idNum, fecha:date(["fecha"]), categoria:txt(["categoria","tipo"],"Otros"), descripcion:txt(["descripcion","concepto","detalle"]), monto:num(["monto","total","importe"]), formapago:txt(["forma de pago","metodo de pago"]), proveedor:txt(["proveedor","suplidor"]), notas:txt(["notas","observaciones"]) };
   if (module === "empleados") { const rawRol=vetImportNorm(txt(["rol"],"caja")); const rol=/admin/.test(rawRol)?"admin":/veter/.test(rawRol)?"veterinario":/groom|pelu/.test(rawRol)?"groomer":"caja"; return { id:"imp_emp_"+idNum, nombre:txt(["empleado","nombre"]), cargo:txt(["cargo","puesto"]), mensualidad:num(["mensualidad","salario","sueldo"]), email:txt(["email","correo"]), telefono:txt(["telefono","celular"]), rol, activo:true, comision_pct:Math.min(100,num(["comision %","comision","porcentaje"])), tipo_pago:"mensual" }; }
   if (module === "nomina") return { id:idNum, mes:txt(["mes","periodo"],new Date().toISOString().slice(0,7)), empleadoid:txt(["empleado id","id empleado","empleado"]), mensualidad:num(["mensualidad","salario","sueldo"]), comisiones:num(["comisiones","comision"]), descuentos:num(["descuentos","descuento"]), notas:txt(["notas","observaciones"]) };
@@ -7564,7 +7605,7 @@ function ImportadorInteligente({ onImported }) {
     if(!window.XLSX)return setMsg({error:true,text:"La librería de hojas de cálculo todavía no cargó."});
     setBusy(true); setMsg(null); const next=[];
     try {
-      for(const file of files){ const data=await file.arrayBuffer(); const wb=window.XLSX.read(data,{type:"array",cellDates:true}); wb.SheetNames.forEach(name=>{const rows=window.XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:"",raw:true}); if(rows.length)next.push({id:file.name+"::"+name,file:file.name,name,rows,module:vetDetectModule(name,rows)});}); }
+      for(const file of files){ const data=await file.arrayBuffer(); const wb=window.XLSX.read(data,{type:"array",cellDates:true}); wb.SheetNames.forEach(name=>{const parsed=vetSheetToRows(wb.Sheets[name]),rows=parsed.rows; if(rows.length)next.push({id:file.name+"::"+name,file:file.name,name,rows,module:vetDetectModule(name,rows),headerRow:parsed.headerRow});}); }
       setSheets(next); if(!next.length)setMsg({error:true,text:"No encontramos filas con encabezados en esos archivos."});
     } catch(e){setMsg({error:true,text:"No se pudo leer el archivo: "+(e.message||e)});} setBusy(false);
   }
@@ -7577,7 +7618,8 @@ function ImportadorInteligente({ onImported }) {
     setBusy(true);setMsg(null);let ok=0,fallos=[];const base=Date.now();
     for(let si=0;si<selected.length;si++){
       const sh=selected[si], cfg=VETMAKE_IMPORT_MODULES[sh.module];
-      const rows=sh.rows.map((r,i)=>vetMapImportRow(sh.module,r,i,base+si*100000)).filter(Boolean).filter(r=>Object.values(r).some(v=>v!==""&&v!==0&&v!==false));
+      const rows=sh.rows.map((r,i)=>vetMapImportRow(sh.module,r,i,base+si*100000)).filter(Boolean).filter(r=>sh.module==="inventario"?String(r.nombre||"").trim():Object.values(r).some(v=>v!==""&&v!==0&&v!==false));
+      if(sh.module==="inventario"&&!rows.length){fallos.push(`${sh.name}: se reconoció como inventario, pero no encontramos una columna de nombre o descripción del producto`);continue;}
       for(let i=0;i<rows.length;i+=200){const batch=rows.slice(i,i+200);const res=await supaFetch(cfg.table,"POST",batch);if(res?.ok)ok+=batch.length;else fallos.push(`${sh.name}: ${res?.error?.message||"error de validación"}`);}
     }
     setBusy(false); if(fallos.length)setMsg({error:true,text:`Se integraron ${ok} filas. Revisa: ${fallos.join(" · ")}`}); else {setMsg({error:false,text:`✅ ${ok} filas integradas. Dashboard, CRM, inventario y reportes se actualizarán.`});localStorage.setItem("vetmake_tutorial_paso","2");if(onImported)onImported();}
@@ -7589,7 +7631,7 @@ function ImportadorInteligente({ onImported }) {
     ));
     return React.createElement(Card,{key:sh.id,style:{padding:16}},
       React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",flexWrap:"wrap"}},
-        React.createElement("div",null,React.createElement("div",{style:{fontWeight:800,fontSize:14}},"📄 ",sh.file," · ",sh.name),React.createElement("div",{style:{fontSize:11,color:C.grisd,marginTop:3}},sh.rows.length," filas · ",Object.keys(sh.rows[0]||{}).length," columnas")),
+        React.createElement("div",null,React.createElement("div",{style:{fontWeight:800,fontSize:14}},"📄 ",sh.file," · ",sh.name),React.createElement("div",{style:{fontSize:11,color:C.grisd,marginTop:3}},sh.rows.length," filas · ",Object.keys(sh.rows[0]||{}).length," columnas",sh.headerRow>0?` · encabezados detectados en la fila ${sh.headerRow+1}`:""),sh.module==="inventario"&&React.createElement("div",{style:{fontSize:11,color:"#166534",fontWeight:700,marginTop:4}},"📦 Inventario detectado: se reconocerán productos, existencias, costos, precios, proveedores, códigos y presentaciones")),
         React.createElement("select",{value:sh.module,onChange:e=>setModule(sh.id,e.target.value),style:{padding:"8px 10px",borderRadius:8,border:"1px solid #dfe5e8",fontWeight:700,color:C.negro}},Object.entries(VETMAKE_IMPORT_MODULES).map(([id,cfg])=>React.createElement("option",{key:id,value:id},cfg.icon+" "+cfg.label)))
       ),
       React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:7,marginTop:12}},muestra)
