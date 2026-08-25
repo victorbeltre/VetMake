@@ -10,7 +10,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260825-public-intake-v11";
+      var V = "20260825-agenda-crm-search-v12";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -18697,6 +18697,7 @@ function Agenda({ citas: citasArg = [], setCitas, deleteCita, clientes = [], ven
   const [filtroFechaDesde, setFiltroFechaDesde] = React.useState("");
   const [filtroFechaHasta, setFiltroFechaHasta] = React.useState("");
   const [busqueda, setBusqueda] = React.useState("");
+  const [agendaSearchOpen, setAgendaSearchOpen] = React.useState(false);
   const [conflictoMsg, setConflictoMsg] = React.useState(null);
   const [calMsg, setCalMsg] = React.useState("");
   const [sofiaStatus, setSofiaStatus] = React.useState(null);
@@ -18711,6 +18712,25 @@ function Agenda({ citas: citasArg = [], setCitas, deleteCita, clientes = [], ven
   const [sortLista, setSortLista] = React.useState("fecha");
   const [sortDir, setSortDir] = React.useState("asc");
   const POR_PAGINA = 20;
+  const crmMascota = (c) => c?.nombreMascota || c?.nombremascota || c?.nombre || "";
+  const crmDueno = (c) => c?.nombrePropietario || c?.nombrepropietario || c?.dueno || "";
+  const crmTelefono = (c) => c?.telefono || c?.whatsapp || "";
+  const buscarCRM = (texto) => {
+    const q = String(texto || "").trim().toLowerCase();
+    if (!q) return [];
+    return (clientes || []).filter((cl) => [crmMascota(cl), crmDueno(cl), crmTelefono(cl)]
+      .some((v) => String(v || "").toLowerCase().includes(q))).slice(0, 10);
+  };
+  const abrirCitaCliente = (cl) => {
+    abrirModal({ id:"nuevo", fecha:fechaActual, hora:"08:00", duracion:60, tipo:"grooming", estado:"pendiente", empleado:usuarioAgenda, mensajesEnviados:[],
+      clienteId:String(cl.id), nombreMascota:crmMascota(cl), nombreCliente:crmDueno(cl), telefono:crmTelefono(cl) });
+    setCrmQuery(`${crmMascota(cl) || "?"} — ${crmDueno(cl) || "?"}`);
+    setAgendaSearchOpen(false);
+  };
+  const abrirCitaManual = (nombre) => {
+    abrirModal({ id:"nuevo", fecha:fechaActual, hora:"08:00", duracion:60, tipo:"grooming", estado:"pendiente", empleado:usuarioAgenda, mensajesEnviados:[], nombreMascota:String(nombre || "").trim() });
+    setAgendaSearchOpen(false);
+  };
 
   const HORAS = [];
   for (let h = 8; h <= 20; h++) { HORAS.push(`${String(h).padStart(2,"0")}:00`); if (h < 20) HORAS.push(`${String(h).padStart(2,"0")}:30`); }
@@ -19006,7 +19026,7 @@ function Agenda({ citas: citasArg = [], setCitas, deleteCita, clientes = [], ven
     const setF = (k,v) => setModalCita(m=>({...m,[k]:v}));
     const histMsgs = modalCita.mensajesEnviados||[];
     const tipoLabels = { confirmacion:"Confirmación", recordatorio:"Recordatorio mañana", recordatorio_hoy:"Recordatorio hoy", recordatorio_2h:"Recordatorio 2h", lista:"Mascota lista", reagendar:"Reagendar" };
-    const crmFiltrados = crmQuery.length>1 ? clientes.filter(cl=>{const q=crmQuery.toLowerCase();return (cl.nombreMascota||"").toLowerCase().includes(q)||(cl.nombrePropietario||"").toLowerCase().includes(q)||(cl.telefono||"").includes(q);}).slice(0,10) : [];
+    const crmFiltrados = buscarCRM(crmQuery);
     const servicios = modalCita.servicios || (modalCita.servicio ? [{nombre:modalCita.servicio,precio:modalCita.precio||0,empleado:modalCita.empleado||""}] : []);
     const totalServicios = servicios.reduce((s,x)=>s+(Number(x.precio)||0),0);
     const agregarServicio = () => {
@@ -19038,11 +19058,12 @@ function Agenda({ citas: citasArg = [], setCitas, deleteCita, clientes = [], ven
           E("input", {value:crmQuery, onChange:e=>{setCrmQuery(e.target.value);setCrmOpen(true);}, onFocus:()=>setCrmOpen(true), placeholder:"Escribe nombre de mascota, dueño o teléfono...", style:{...inputStyle,background:modalCita.clienteId?"#e6f4ec":"#fff"}}),
           modalCita.clienteId && E("div",{style:{fontSize:12,color:C.verde,marginTop:4,fontWeight:600}},`✅ Vinculado: ${modalCita.nombreMascota||"?"} (${modalCita.nombreCliente||"?"}) · `,E("span",{style:{cursor:"pointer",textDecoration:"underline"},onClick:()=>{setModalCita(m=>({...m,clienteId:null}));setCrmQuery("");}},"quitar")),
           crmOpen && crmFiltrados.length>0 && E("div",{style:{position:"absolute",top:"100%",left:0,right:0,background:"#fff",border:"1px solid #e0e4e8",borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:100,maxHeight:220,overflowY:"auto"}},
-            crmFiltrados.map(cl=>E("div",{key:cl.id,onClick:()=>{setModalCita(m=>({...m,clienteId:String(cl.id),nombreCliente:cl.nombrePropietario||"",nombreMascota:cl.nombreMascota||"",telefono:cl.telefono||m.telefono}));setCrmQuery(`${cl.nombreMascota||"?"} — ${cl.nombrePropietario||"?"}`);setCrmOpen(false);},style:{padding:"10px 14px",cursor:"pointer",borderBottom:"1px solid #f4f5f6",fontSize:13}},
-              E("div",{style:{fontWeight:700}},`${cl.nombreMascota||"?"}  ·  ${cl.nombrePropietario||"?"}`),
-              E("div",{style:{fontSize:11,color:C.grisd}},cl.telefono||"sin teléfono")
+            crmFiltrados.map(cl=>E("div",{key:cl.id,onClick:()=>{setModalCita(m=>({...m,clienteId:String(cl.id),nombreCliente:crmDueno(cl),nombreMascota:crmMascota(cl),telefono:crmTelefono(cl)||m.telefono}));setCrmQuery(`${crmMascota(cl)||"?"} — ${crmDueno(cl)||"?"}`);setCrmOpen(false);},style:{padding:"10px 14px",cursor:"pointer",borderBottom:"1px solid #f4f5f6",fontSize:13}},
+              E("div",{style:{fontWeight:700}},`${crmMascota(cl)||"?"}  ·  ${crmDueno(cl)||"?"}`),
+              E("div",{style:{fontSize:11,color:C.grisd}},crmTelefono(cl)||"sin teléfono")
             ))
-          )
+          ),
+          crmOpen && crmQuery.trim() && E("button", { type:"button", onClick:()=>{setModalCita(m=>({...m,clienteId:null,nombreMascota:m.nombreMascota||crmQuery.trim()}));setCrmOpen(false);}, style:{width:"100%",marginTop:6,border:"1px dashed #94a3b8",borderRadius:8,padding:"8px 10px",background:"#f8fafc",color:C.grisd,fontSize:12,fontWeight:700,cursor:"pointer",textAlign:"left"} }, crmFiltrados.length ? "➕ No es uno de estos: usar como mascota nueva" : `➕ “${crmQuery.trim()}” no está en el CRM — agregar manualmente`)
         ),
         E("div", { style:{display:"flex",gap:10,marginBottom:14} },
           E("div", {style:{flex:1}}, E("label",{style:labelStyle},"Dueño"), E("input",{value:modalCita.nombreCliente||"",onChange:e=>setF("nombreCliente",e.target.value),placeholder:"Nombre del propietario",style:inputStyle})),
@@ -19446,7 +19467,17 @@ function Agenda({ citas: citasArg = [], setCitas, deleteCita, clientes = [], ven
     ),
     E(Card,{style:{marginBottom:16,padding:"12px 16px"}},
       E("div",{style:{display:"flex",flexWrap:"wrap",gap:8,alignItems:"center",marginBottom:10}},
-        E("input",{placeholder:"🔍 Buscar mascota, dueño o servicio...",value:busqueda,onChange:e=>{setBusqueda(e.target.value);setPaginaLista(0);},style:{padding:"7px 12px",border:"1px solid #e0e4e8",borderRadius:8,fontSize:13,minWidth:190}}),
+        E("div", { style:{position:"relative",minWidth:190,flex:"0 1 300px"} },
+          E("input",{placeholder:"🔍 Buscar mascota, dueño o teléfono...",value:busqueda,onChange:e=>{setBusqueda(e.target.value);setPaginaLista(0);setAgendaSearchOpen(true);},onFocus:()=>setAgendaSearchOpen(true),style:{padding:"7px 12px",border:"1px solid #e0e4e8",borderRadius:8,fontSize:13,width:"100%"}}),
+          agendaSearchOpen && busqueda.trim() && E("div", { style:{position:"absolute",top:"calc(100% + 5px)",left:0,right:0,minWidth:310,background:"#fff",border:"1px solid #dbe2e8",borderRadius:10,boxShadow:"0 10px 30px rgba(0,0,0,.16)",zIndex:400,maxHeight:290,overflowY:"auto"} },
+            E("div", { style:{padding:"8px 12px",fontSize:10.5,fontWeight:800,color:C.grisd,textTransform:"uppercase",letterSpacing:.5,background:"#f8fafc"} }, "Mascotas del CRM"),
+            buscarCRM(busqueda).map((cl) => E("button", { key:cl.id,type:"button",onClick:()=>abrirCitaCliente(cl),style:{display:"block",width:"100%",textAlign:"left",padding:"10px 12px",border:0,borderBottom:"1px solid #f1f5f9",background:"#fff",cursor:"pointer"} },
+              E("div", { style:{fontWeight:800,fontSize:13,color:C.verde} }, "🐾 " + (crmMascota(cl) || "Sin nombre")),
+              E("div", { style:{fontSize:11.5,color:C.grisd,marginTop:2} }, (crmDueno(cl) || "Sin propietario") + (crmTelefono(cl) ? " · " + crmTelefono(cl) : " · sin teléfono")))),
+            buscarCRM(busqueda).length === 0 && E("div", { style:{padding:"12px",fontSize:12,color:C.grisd} }, "No encontramos esa mascota en el CRM."),
+            E("button", { type:"button",onClick:()=>abrirCitaManual(busqueda),style:{display:"block",width:"100%",textAlign:"left",padding:"11px 12px",border:0,background:"#ecfdf5",color:C.verde,fontWeight:800,fontSize:12.5,cursor:"pointer"} }, `➕ Agendar “${busqueda.trim()}” manualmente`)
+          )
+        ),
         E("select",{value:filtroEmpleado,onChange:e=>{setFiltroEmpleado(e.target.value);setPaginaLista(0);},style:{padding:"7px 10px",border:"1px solid #e0e4e8",borderRadius:8,fontSize:13}},
           E("option",{value:"todos"},"👥 Todos"),
           Object.keys(EMPLEADOS).map(e=>E("option",{key:e,value:e},e))
