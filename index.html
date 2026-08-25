@@ -10,7 +10,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260825-inventory-import-v7";
+      var V = "20260825-clickable-receivables-v8";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -2040,7 +2040,7 @@ const Btn = ({ onClick, color = C.verde, children, small, outline }) => /* @__PU
   },
   children
 );
-const Input = ({ label, value, onChange, type = "text", placeholder, step }) => /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4, flex: 1 } }, label && /* @__PURE__ */ React.createElement("label", { style: { fontSize: 11, fontWeight: 700, color: C.grisd, textTransform: "uppercase", letterSpacing: 1 } }, label), /* @__PURE__ */ React.createElement(
+const Input = ({ label, value, onChange, type = "text", placeholder, step, id, autoFocus = false }) => /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4, flex: 1 } }, label && /* @__PURE__ */ React.createElement("label", { htmlFor:id, style: { fontSize: 11, fontWeight: 700, color: C.grisd, textTransform: "uppercase", letterSpacing: 1 } }, label), /* @__PURE__ */ React.createElement(
   "input",
   {
     type,
@@ -2048,6 +2048,8 @@ const Input = ({ label, value, onChange, type = "text", placeholder, step }) => 
     onChange: (e) => onChange(e.target.value),
     placeholder,
     step,
+    id,
+    autoFocus,
     style: {
       border: `1.5px solid #e0e4e8`,
       borderRadius: 8,
@@ -9060,7 +9062,7 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
     tab === "vozia" && React.createElement(VozIA, null),
     tab === "llamadas" && React.createElement(Llamadas, null),
     tab === "whatsapp" && React.createElement(WhatsAppInbox, null),
-    tab === "cobros" && React.createElement(Cobros, { ventas, setVentas, clientes: todosClientes }),
+    tab === "cobros" && React.createElement(Cobros, { ventas, setVentas, clientes: todosClientes, setTab, setCrmClienteInicial }),
     tab === "planes" && React.createElement(Planes, { paquetes, setPaquetes, clientes: todosClientes, ventas, setVentas }),
     tab === "caja" && React.createElement(CierreCaja, { ventas, gastos }),
     tab === "candidatos" && React.createElement(Candidatos, null),
@@ -13210,6 +13212,7 @@ function CRM({ clientes, setClientes, deleteCliente, onVirtualFusion, ventas, se
   const [filtroRaza, setFiltroRaza] = useState("");
   const [ordenCRM, setOrdenCRM] = useState("nombre_az");
   const [editando, setEditando] = useState(false);
+  const [enfoqueContacto, setEnfoqueContacto] = useState(false);
   const [modalFactura, setModalFactura] = useState(false);
   const [serviciosFactura, setServiciosFactura] = useState([]);
   const [showDedup, setShowDedup] = useState(false);
@@ -13291,10 +13294,18 @@ function CRM({ clientes, setClientes, deleteCliente, onVirtualFusion, ventas, se
     const key = clienteInicial.modo + "|" + (clienteInicial.cliente?.id || clienteInicial.nombreInicial || "nuevo");
     if (clienteInicialRef.current === key) return;
     clienteInicialRef.current = key;
-    if (clienteInicial.modo === "detalle" && clienteInicial.cliente) {
+    if (clienteInicial.modo === "contacto" && clienteInicial.cliente) {
+      setClienteSel(clienteInicial.cliente);
+      setForm({ ...CRM_EMPTY_FORM, ...clienteInicial.cliente });
+      setEditando(true);
+      setEnfoqueContacto(true);
+      setVista("nuevo");
+      setTimeout(function(){ const el=document.querySelector('input[placeholder="809-000-0000"]'); if(el){el.focus();el.scrollIntoView({behavior:"smooth",block:"center"});} },80);
+    } else if (clienteInicial.modo === "detalle" && clienteInicial.cliente) {
       setClienteSel(clienteInicial.cliente);
       setForm({ ...CRM_EMPTY_FORM, ...clienteInicial.cliente });
       setEditando(false);
+      setEnfoqueContacto(false);
       setVista("detalle");
     } else if (clienteInicial.modo === "buscar") {
       setClienteSel(clienteInicial.cliente);
@@ -17340,7 +17351,7 @@ async function pedirEnlacePago(venta, cliente) {
   }
   return d;
 }
-function Cobros({ ventas, setVentas, clientes, soloPropio }) {
+function Cobros({ ventas, setVentas, clientes, soloPropio, setTab, setCrmClienteInicial }) {
   const E = React.createElement;
   const [busq, setBusq] = React.useState("");
   const [tramoSel, setTramoSel] = React.useState("todos");
@@ -17350,6 +17361,17 @@ function Cobros({ ventas, setVentas, clientes, soloPropio }) {
   const [abRecibido, setAbRecibido] = React.useState("");
   const [abFecha, setAbFecha] = React.useState("");
   const [generando, setGenerando] = React.useState(null);
+  const linkStyle = {background:"none",border:"none",padding:0,cursor:"pointer",font:"inherit",color:"inherit",textAlign:"left",textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:3};
+  function abrirCliente(x, contacto) {
+    if (!setTab || !setCrmClienteInicial) return;
+    setCrmClienteInicial(x.cli ? {cliente:x.cli,modo:contacto?"contacto":"detalle"} : {cliente:null,modo:"nuevo",nombreInicial:x.v.cliente||""});
+    setTab("clientes");
+  }
+  function abrirVenta(v) {
+    if (!setTab) return;
+    setTab("ventas");
+    setTimeout(function(){ window.dispatchEvent(new CustomEvent("pc-edit-venta",{detail:v.id})); },0);
+  }
   async function cobrarConTarjeta(x) {
     setGenerando(String(x.v.id));
     try {
@@ -17525,7 +17547,7 @@ function Cobros({ ventas, setVentas, clientes, soloPropio }) {
     },
       E("strong", null, "\u{1F4DE} " + sinTel.length + " de estas facturas no tienen tel\xE9fono registrado "),
       "(" + cobRD(sinTel.reduce((n, x) => n + x.monto, 0)) + "). A esos clientes no los puedes contactar. ",
-      "Agr\xE9gale el n\xFAmero en Clientes / CRM para poder cobrarles.") : null,
+      E("button",{onClick:()=>abrirCliente(sinTel[0],true),style:{...linkStyle,color:"#7a5c00",fontWeight:800}},"Abrir el primer contacto incompleto →")) : null,
 
     lista.length > 0 ? E("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14 } },
       E("input", {
@@ -17554,15 +17576,15 @@ function Cobros({ ventas, setVentas, clientes, soloPropio }) {
         E("div", { style: { display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" } },
           E("div", { style: { flex: 1, minWidth: 220 } },
             E("div", { style: { fontWeight: 800, fontSize: 15 } },
-              v.cliente || "(sin nombre)",
-              x.dueno ? E("span", { style: { fontWeight: 500, color: "#5a6472", fontSize: 13 } }, "  \xB7 " + x.dueno) : null),
+              E("button",{onClick:()=>abrirCliente(x,false),title:"Abrir la ficha de esta mascota en el CRM",style:{...linkStyle,fontWeight:800}},v.cliente || "(sin nombre)"),
+              x.dueno ? E("span", { style: { fontWeight: 500, color: "#5a6472", fontSize: 13 } }, "  \xB7 ",E("button",{onClick:()=>abrirCliente(x,false),title:"Abrir los datos del propietario",style:{...linkStyle,color:"#5a6472"}},x.dueno)) : null),
             E("div", { style: { fontSize: 12.5, color: "#5a6472", marginTop: 3 } },
-              sinEmoji(String(v.servicio || v.descripcion || "servicio"))),
+              E("button",{onClick:()=>abrirVenta(v),title:"Abrir y editar el registro de esta venta",style:{...linkStyle,color:"#5a6472"}},sinEmoji(String(v.servicio || v.descripcion || "servicio")))),
             E("div", { style: { fontSize: 12, color: "#8a93a0", marginTop: 3 } },
               String(v.fecha || "").slice(0, 10),
               E("span", { style: { color: x.tramo.color, fontWeight: 800, marginLeft: 8 } },
                 "hace " + x.dias + " d\xEDa" + (x.dias === 1 ? "" : "s")),
-              !x.tel ? E("span", { style: { color: "#c9a227", fontWeight: 700, marginLeft: 8 } }, "⚠️ sin tel\xE9fono") : null),
+              !x.tel ? E("button", { onClick:()=>abrirCliente(x,true), title:"Añadir teléfono en los datos de contacto", style: { ...linkStyle, color: "#c9a227", fontWeight: 700, marginLeft: 8 } }, "⚠️ sin tel\xE9fono") : null),
             x.abonado > 0 ? E("div", { style: { fontSize: 12, marginTop: 4, color: "#5b21b6", fontWeight: 700 } },
               "\u{1F91D} Abonado " + cobRD(x.abonado) + " de " + cobRD(x.total)) : null,
             x.fechaRec ? E("div", {
@@ -17570,7 +17592,7 @@ function Cobros({ ventas, setVentas, clientes, soloPropio }) {
                        color: x.tocaHoy ? "#b8232a" : "#5a6472" }
             }, x.tocaHoy ? "\u{1F514} Hoy toca recordarle (desde " + x.fechaRec + ")"
                          : "\u{1F4C5} Recordarle el " + x.fechaRec) : null),
-          E("div", { style: { fontSize: 22, fontWeight: 800, fontFamily: "Georgia,serif", color: x.tramo.color, whiteSpace: "nowrap" } },
+          E("button", { onClick:()=>abrirVenta(v), title:"Abrir la venta, revisar el monto y editar la forma de pago", style: { ...linkStyle, fontSize: 22, fontWeight: 800, fontFamily: "Georgia,serif", color: x.tramo.color, whiteSpace: "nowrap" } },
             cobRD(x.monto)),
           E("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
             x.tel ? E("a", {
