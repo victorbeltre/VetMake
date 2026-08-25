@@ -10,7 +10,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260825-onboarding-v1";
+      var V = "20260825-focus-fix-v2";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -8568,7 +8568,10 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
     }
   }
 
-  const Campo = ({ label, campo, placeholder, type = "text" }) => E("label", { style: { display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#5a6472", fontWeight: 700 } },
+  // Se invoca como función de render, no como componente React. Al definir un
+  // componente dentro de ConfiguracionNegocio su identidad cambiaba en cada
+  // tecla, React desmontaba el input y el foco se perdía tras cada carácter.
+  const renderCampo = ({ label, campo, placeholder, type = "text" }) => E("label", { style: { display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#5a6472", fontWeight: 700 } },
     label,
     E("input", { type, value: perfil[campo] || "", onChange: e => setPerfilCampo(campo, e.target.value), placeholder: placeholder || "", style: { width: "100%", padding: "10px 11px", border: "1px solid #dfe5e8", borderRadius: 8, fontSize: 13, color: "#1a1d23", background: "#fff" } })
   );
@@ -8591,17 +8594,17 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
         E("div", { style: { fontWeight: 800, fontSize: 15, marginBottom: 4 } }, "🏢 Identidad del negocio"),
         E("div", { style: { fontSize: 12, color: "#5a6472", marginBottom: 16 } }, "Estos datos aparecen en encabezados, facturas, carnets y mensajes."),
         E("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 13 } },
-          E(Campo, { label: "Nombre comercial *", campo: "nombre", placeholder: "Ej. Clínica Veterinaria" }),
-          E(Campo, { label: "Descripción corta", campo: "tagline", placeholder: "Ej. Salud y bienestar animal" }),
-          E(Campo, { label: "Teléfono", campo: "telefono", placeholder: "809-000-0000" }),
-          E(Campo, { label: "WhatsApp", campo: "whatsapp", placeholder: "809-000-0000" }),
-          E(Campo, { label: "Correo comercial", campo: "email", placeholder: "contacto@clinica.com", type: "email" }),
-          E(Campo, { label: "RNC", campo: "rnc", placeholder: "Opcional" }),
+          renderCampo({ label: "Nombre comercial *", campo: "nombre", placeholder: "Ej. Clínica Veterinaria" }),
+          renderCampo({ label: "Descripción corta", campo: "tagline", placeholder: "Ej. Salud y bienestar animal" }),
+          renderCampo({ label: "Teléfono", campo: "telefono", placeholder: "809-000-0000" }),
+          renderCampo({ label: "WhatsApp", campo: "whatsapp", placeholder: "809-000-0000" }),
+          renderCampo({ label: "Correo comercial", campo: "email", placeholder: "contacto@clinica.com", type: "email" }),
+          renderCampo({ label: "RNC", campo: "rnc", placeholder: "Opcional" }),
           E("label", { style: { gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#5a6472", fontWeight: 700 } }, "Dirección", E("textarea", { value: perfil.direccion || "", onChange: e => setPerfilCampo("direccion", e.target.value), rows: 2, placeholder: "Dirección de la clínica", style: { width: "100%", padding: "10px 11px", border: "1px solid #dfe5e8", borderRadius: 8, fontSize: 13, resize: "vertical" } })),
-          E(Campo, { label: "Instagram", campo: "instagram", placeholder: "@tuclinica" }),
-          E(Campo, { label: "Facebook", campo: "facebook", placeholder: "facebook.com/tuclinica" }),
-          E(Campo, { label: "Sitio web", campo: "sitio_web", placeholder: "https://..." }),
-          E(Campo, { label: "Color principal", campo: "color_primario", placeholder: "#1a6b3a" })
+          renderCampo({ label: "Instagram", campo: "instagram", placeholder: "@tuclinica" }),
+          renderCampo({ label: "Facebook", campo: "facebook", placeholder: "facebook.com/tuclinica" }),
+          renderCampo({ label: "Sitio web", campo: "sitio_web", placeholder: "https://..." }),
+          renderCampo({ label: "Color principal", campo: "color_primario", placeholder: "#1a6b3a" })
         ),
         E("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 18 } }, E("button", { onClick: guardarPerfil, disabled: guardandoPerfil, style: { background: "#1a6b3a", color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", cursor: guardandoPerfil ? "wait" : "pointer", fontWeight: 800, fontSize: 13 } }, guardandoPerfil ? "Guardando…" : "💾 Guardar perfil"))
       ),
