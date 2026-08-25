@@ -10,7 +10,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260825-agenda-crm-search-v12";
+      var V = "20260825-business-logo-v13";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -138,6 +138,12 @@ function vetMakeBusinessTagline() {
 }
 function vetMakeBusinessLogo() {
   return String(getVetMakeBusiness().logo_url || "").trim();
+}
+function BusinessLogoMark({ size = 36 }) {
+  const logo = vetMakeBusinessLogo();
+  return logo
+    ? React.createElement("img", { src: logo, alt: "Logo de " + vetMakeBusinessName(), style: { width: size, height: size, objectFit: "contain", borderRadius: 7, background: "rgba(255,255,255,.96)", padding: 3, flexShrink: 0 }, onError: (e) => { e.currentTarget.style.display = "none"; } })
+    : React.createElement("span", { style: { fontSize: Math.round(size * .65), lineHeight: 1, flexShrink: 0 } }, "🐾");
 }
 function vetMakeRoleLabel(rol) {
   const labels = { admin: "Administrador", caja: "Caja", veterinario: "Veterinario", groomer: "Groomer" };
@@ -8546,6 +8552,7 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
   const negocio = tenant?.negocio || {};
   const [seccion, setSeccion] = React.useState("perfil");
   const [guardandoPerfil, setGuardandoPerfil] = React.useState(false);
+  const [subiendoLogo, setSubiendoLogo] = React.useState(false);
   const [mensaje, setMensaje] = React.useState(null);
   const [perfil, setPerfil] = React.useState(() => ({
     nombre: negocio.nombre || "",
@@ -8558,7 +8565,8 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
     instagram: negocio.instagram || "",
     facebook: negocio.facebook || "",
     sitio_web: negocio.sitio_web || "",
-    color_primario: negocio.color_primario || ""
+    color_primario: negocio.color_primario || "",
+    logo_url: negocio.logo_url || ""
   }));
   const EMPLEADO_VACIO = { id: "", nombre: "", cargo: "", rol: "", email: "", telefono: "", mensualidad: "", comisionPct: "0", tipoPago: "mixto", activo: true, usuarioId: "" };
   const CARGOS_SUGERIDOS = [
@@ -8583,7 +8591,8 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
       instagram: negocio.instagram || "",
       facebook: negocio.facebook || "",
       sitio_web: negocio.sitio_web || "",
-      color_primario: negocio.color_primario || ""
+      color_primario: negocio.color_primario || "",
+      logo_url: negocio.logo_url || ""
     });
   }, [negocio.id]);
 
@@ -8593,6 +8602,37 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
     setMensaje({ tipo, texto });
     window.setTimeout(() => setMensaje(null), 5000);
   };
+
+  async function subirLogo(evento) {
+    const archivo = evento.target.files?.[0];
+    evento.target.value = "";
+    if (!archivo) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(archivo.type)) return avisar("error", "Usa una imagen PNG, JPG o WEBP.");
+    if (archivo.size > 2 * 1024 * 1024) return avisar("error", "El logo debe pesar menos de 2 MB.");
+    const session = getStoredVetMakeSession();
+    if (!session?.access_token || !tenant?.negocioId) return avisar("error", "La sesión venció. Inicia sesión nuevamente.");
+    setSubiendoLogo(true);
+    try {
+      const extension = archivo.type === "image/png" ? "png" : archivo.type === "image/webp" ? "webp" : "jpg";
+      const ruta = tenant.negocioId + "/logo." + extension;
+      const respuesta = await fetch(SUPA_URL + "/storage/v1/object/logos-negocios/" + ruta, {
+        method: "POST",
+        headers: { apikey: SUPA_KEY, Authorization: "Bearer " + session.access_token, "Content-Type": archivo.type, "x-upsert": "true" },
+        body: archivo
+      });
+      if (!respuesta.ok) throw new Error((await respuesta.json().catch(() => ({}))).message || "No se pudo subir la imagen.");
+      const logoUrl = SUPA_URL + "/storage/v1/object/public/logos-negocios/" + ruta + "?v=" + Date.now();
+      const guardado = await supaFetch("negocios", "PATCH", { logo_url: logoUrl }, "?id=eq." + encodeURIComponent(tenant.negocioId));
+      if (!guardado || guardado.error) throw new Error("El archivo subió, pero no se pudo vincular al negocio.");
+      const siguiente = { ...tenant, negocio: { ...negocio, logo_url: logoUrl } };
+      setPerfilCampo("logo_url", logoUrl);
+      VETMAKE_TENANT_CONTEXT = siguiente;
+      window.__vetmakeTenant = siguiente;
+      if (onTenantChange) onTenantChange(siguiente);
+      avisar("ok", "Logo actualizado. Ya aparece en el encabezado.");
+    } catch (error) { avisar("error", error.message || "No se pudo subir el logo."); }
+    finally { setSubiendoLogo(false); }
+  }
 
   async function guardarPerfil() {
     if (!String(perfil.nombre || "").trim()) return avisar("error", "El nombre del negocio es obligatorio.");
@@ -8717,6 +8757,13 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
       E("div", { style: { background: "#fff", border: "1px solid #e0e4e8", borderRadius: 12, padding: 20, marginBottom: 16 } },
         E("div", { style: { fontWeight: 800, fontSize: 15, marginBottom: 4 } }, "🏢 Identidad del negocio"),
         E("div", { style: { fontSize: 12, color: "#5a6472", marginBottom: 16 } }, "Estos datos aparecen en encabezados, facturas, carnets y mensajes."),
+        E("div", { style: { display: "flex", alignItems: "center", gap: 16, padding: 14, border: "1px dashed #b8c8be", borderRadius: 11, background: "#f8fcf9", marginBottom: 16, flexWrap: "wrap" } },
+          perfil.logo_url
+            ? E("img", { src: perfil.logo_url, alt: "Vista previa del logo", style: { width: 78, height: 78, objectFit: "contain", borderRadius: 10, background: "#fff", border: "1px solid #e2e8f0", padding: 5 } })
+            : E("div", { style: { width: 78, height: 78, display: "grid", placeItems: "center", borderRadius: 10, background: "#e8f5ed", fontSize: 34 } }, "🐾"),
+          E("div", { style: { flex: 1, minWidth: 210 } }, E("div", { style: { fontWeight: 800, fontSize: 14, color: "#1a1d23" } }, "Logo del negocio"), E("div", { style: { fontSize: 12, color: "#5a6472", marginTop: 4, lineHeight: 1.45 } }, "Se mostrará en el encabezado, el formulario de clientes y las facturas. Recomendado: imagen cuadrada o apaisada, PNG/JPG/WEBP, máximo 2 MB.")),
+          E("label", { style: { background: subiendoLogo ? "#94a3b8" : "#1a6b3a", color: "#fff", borderRadius: 9, padding: "10px 15px", fontWeight: 800, fontSize: 12, cursor: subiendoLogo ? "wait" : "pointer" } }, subiendoLogo ? "Subiendo…" : (perfil.logo_url ? "🖼️ Cambiar logo" : "⬆️ Subir logo"), E("input", { type: "file", accept: "image/png,image/jpeg,image/webp", disabled: subiendoLogo, onChange: subirLogo, style: { display: "none" } }))
+        ),
         E("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 13 } },
           renderCampo({ label: "Nombre comercial *", campo: "nombre", placeholder: "Ej. Clínica Veterinaria" }),
           renderCampo({ label: "Descripción corta", campo: "tagline", placeholder: "Ej. Salud y bienestar animal" }),
@@ -9026,7 +9073,7 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
     alignItems: "center",
     justifyContent: "space-between",
     boxShadow: "0 4px 20px rgba(0,0,0,0.15)"
-  } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 22, fontWeight: 800, color: "#fff", letterSpacing: -0.5 } }, "\u{1F43E} " + (tenant?.negocio?.nombre || vetMakeBusinessName())), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.7)", marginTop: 2 } }, vetMakeBusinessTagline())), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "rgba(255,255,255,0.8)", fontWeight: 700 } }, (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "long" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "rgba(255,255,255,0.6)" } }, (session?.user?.email || "") + " \u2014 " + vetMakeRoleLabel(tenant?.rol)), React.createElement(EstadoSync, null), ventasPendientesCount > 0 && /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("cobros"), title: "Ir a la pesta\xF1a de Cobros", style: { background: "#e53e3e", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 800, marginTop: 2, display: "flex", alignItems: "center", gap: 5, animation: "pulse 1.5s infinite" } }, "\uD83D\uDD34 RD$ " + ventasPendientesMonto.toLocaleString("es-DO") + " por cobrar (" + ventasPendientesCount + ")"), /* @__PURE__ */ React.createElement("button", { onClick: onLogout, style: {
+  } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 11 } }, React.createElement(BusinessLogoMark, { size: 42 }), React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 22, fontWeight: 800, color: "#fff", letterSpacing: -0.5 } }, tenant?.negocio?.nombre || vetMakeBusinessName()), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.7)", marginTop: 2 } }, vetMakeBusinessTagline()))), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: "rgba(255,255,255,0.8)", fontWeight: 700 } }, (/* @__PURE__ */ new Date()).toLocaleDateString("es-DO", { weekday: "long", day: "numeric", month: "long" })), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "rgba(255,255,255,0.6)" } }, (session?.user?.email || "") + " \u2014 " + vetMakeRoleLabel(tenant?.rol)), React.createElement(EstadoSync, null), ventasPendientesCount > 0 && /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("cobros"), title: "Ir a la pesta\xF1a de Cobros", style: { background: "#e53e3e", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 800, marginTop: 2, display: "flex", alignItems: "center", gap: 5, animation: "pulse 1.5s infinite" } }, "\uD83D\uDD34 RD$ " + ventasPendientesMonto.toLocaleString("es-DO") + " por cobrar (" + ventasPendientesCount + ")"), /* @__PURE__ */ React.createElement("button", { onClick: onLogout, style: {
     background: "rgba(255,255,255,0.15)",
     border: "1px solid rgba(255,255,255,0.3)",
     color: "#fff",
