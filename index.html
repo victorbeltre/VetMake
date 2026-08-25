@@ -10,7 +10,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260825-cargo-suggestions-v3";
+      var V = "20260825-service-import-v4";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -22,6 +22,7 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -18197,6 +18198,9 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
   const [editForm, setEditForm] = React.useState({});
   const [agregando, setAgregando] = React.useState(false);
   const [nuevoForm, setNuevoForm] = React.useState({ nombre: "", precio: "", comision: "" });
+  const [analizando, setAnalizando] = React.useState(false);
+  const [importados, setImportados] = React.useState([]);
+  const [importMsg, setImportMsg] = React.useState("");
 
   const tarifas = seccion === "grooming" ? tarifasGrooming : tarifasVet;
   const setTarifas = seccion === "grooming" ? setTarifasGrooming : setTarifasVet;
@@ -18232,6 +18236,74 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
     alert("Este negocio no carga catálogos heredados. Agrega y configura sus propios servicios.");
   }
 
+  function numeroImportado(v) {
+    if (typeof v === "number") return v;
+    var s = String(v == null ? "" : v).replace(/RD\$|DOP|US\$/gi, "").replace(/\s/g, "");
+    if (s.includes(",") && s.includes(".")) s = s.lastIndexOf(",") > s.lastIndexOf(".") ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+    else if (s.includes(",")) s = s.replace(",", ".");
+    return Number(s.replace(/[^0-9.-]/g, "")) || 0;
+  }
+  function categoriaImportada(valor, nombre) {
+    var s = (String(valor || "") + " " + String(nombre || "")).toLowerCase();
+    return /veter|consulta|vacun|cirug|laborat|medic|desparasit|radiograf|sonograf/.test(s) ? "veterinaria" : "grooming";
+  }
+  function filaServicio(row) {
+    var normal = {};
+    Object.keys(row || {}).forEach(function(k) { normal[String(k).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")] = row[k]; });
+    function busca(patrones) { var k = Object.keys(normal).find(function(x) { return patrones.some(function(p) { return x.includes(p); }); }); return k ? normal[k] : ""; }
+    var nombre = busca(["servicio", "descripcion", "concepto", "tratamiento", "nombre"]);
+    return { nombre: String(nombre || "").trim(), precio: numeroImportado(busca(["precio", "costo", "tarifa", "importe", "valor"])), comision: numeroImportado(busca(["comision", "pago empleado", "incentivo"])), categoria: categoriaImportada(busca(["categoria", "area", "tipo", "departamento"]), nombre), incluir: !!String(nombre || "").trim() };
+  }
+  function serviciosDesdeTexto(texto) {
+    return String(texto || "").split(/\r?\n/).map(function(linea) {
+      var limpia = linea.trim().replace(/^[•*\-–—]+\s*/, "");
+      if (!limpia) return null;
+      var montos = limpia.match(/(?:RD\$|DOP|\$)?\s*[0-9][0-9.,]*/gi) || [];
+      if (!montos.length) return null;
+      var nombre = limpia.slice(0, limpia.indexOf(montos[0])).replace(/[|;,:\-–—]+\s*$/, "").trim();
+      if (nombre.length < 2) return null;
+      return { nombre: nombre, precio: numeroImportado(montos[0]), comision: numeroImportado(montos[1] || 0), categoria: categoriaImportada("", nombre), incluir: true };
+    }).filter(Boolean);
+  }
+  async function leerServiciosArchivo(e) {
+    var archivos = Array.from(e.target.files || []); e.target.value = "";
+    if (!archivos.length) return;
+    setAnalizando(true); setImportMsg("");
+    try {
+      var encontrados = [];
+      for (const file of archivos) {
+        var ext = file.name.split(".").pop().toLowerCase();
+        if (["xlsx", "xls", "csv"].includes(ext)) {
+          var wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+          wb.SheetNames.forEach(function(hoja) { XLSX.utils.sheet_to_json(wb.Sheets[hoja], { defval: "" }).forEach(function(r) { var s = filaServicio(r); if (s.nombre) encontrados.push(s); }); });
+        } else if (ext === "docx") {
+          if (!window.mammoth) throw new Error("No se pudo cargar el lector de Word.");
+          encontrados.push(...serviciosDesdeTexto((await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value));
+        } else if (ext === "pdf") {
+          var pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs");
+          pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs";
+          var pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise, lineas = [];
+          for (var pg = 1; pg <= pdf.numPages; pg++) { var contenido = await (await pdf.getPage(pg)).getTextContent(); lineas.push(contenido.items.map(function(i){ return i.str; }).join(" ")); }
+          encontrados.push(...serviciosDesdeTexto(lineas.join("\n")));
+        } else encontrados.push(...serviciosDesdeTexto(await file.text()));
+      }
+      var unicos = [];
+      encontrados.forEach(function(s) { if (!unicos.some(function(u) { return u.nombre.toLowerCase() === s.nombre.toLowerCase() && u.categoria === s.categoria; })) unicos.push(s); });
+      setImportados(unicos);
+      setImportMsg(unicos.length ? "Detectamos " + unicos.length + " servicios. Revisa los datos antes de integrarlos." : "No pudimos detectar servicios. Usa columnas como Servicio, Precio, Comisión y Categoría, o líneas de texto con nombre y monto.");
+    } catch (err) { setImportMsg("No se pudo analizar el archivo: " + (err.message || err)); }
+    finally { setAnalizando(false); }
+  }
+  function actualizarImportado(i, campo, valor) { setImportados(function(prev) { return prev.map(function(s, idx) { return idx === i ? { ...s, [campo]: valor } : s; }); }); }
+  function confirmarImportacion() {
+    var elegidos = importados.filter(function(s) { return s.incluir && s.nombre.trim() && numeroImportado(s.precio) > 0; });
+    if (!elegidos.length) return alert("Selecciona al menos un servicio con nombre y precio mayor que cero.");
+    var ahora = Date.now();
+    setTarifasGrooming(function(prev) { return prev.concat(elegidos.filter(function(s){return s.categoria === "grooming";}).map(function(s,i){return {id:"gi"+(ahora+i),nombre:s.nombre.trim(),precio:numeroImportado(s.precio),comision:numeroImportado(s.comision)};})); });
+    setTarifasVet(function(prev) { return prev.concat(elegidos.filter(function(s){return s.categoria === "veterinaria";}).map(function(s,i){return {id:"vi"+(ahora+i),nombre:s.nombre.trim(),precio:numeroImportado(s.precio),comision:numeroImportado(s.comision)};})); });
+    setImportMsg("Se integraron " + elegidos.length + " servicios correctamente."); setImportados([]);
+  }
+
   function comisionLabel(t) {
     const comision = Number(t.comision) || 0;
     return "Comisión configurada: RD$ " + comision.toLocaleString("es-DO");
@@ -18247,10 +18319,27 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
         React.createElement("h2", { style: { margin: 0, fontSize: 22, fontWeight: 800 } }, "\u2699\uFE0F Catálogo de Servicios"),
         React.createElement("div", { style: { fontSize: 13, color: C.grisd, marginTop: 4 } }, "Edita precios y comisiones. Los cambios se reflejan inmediatamente en ventas.")
       ),
-      React.createElement("div", { style: { display: "flex", gap: 8 } },
+      React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+        React.createElement("label", { style: { background: C.azul, color: "#fff", borderRadius: 8, padding: "8px 16px", cursor: analizando ? "wait" : "pointer", fontWeight: 700, fontSize: 13 } }, analizando ? "⏳ Analizando…" : "📄 Importar catálogo", React.createElement("input", { type: "file", multiple: true, accept: ".xlsx,.xls,.csv,.pdf,.docx,.txt", disabled: analizando, onChange: leerServiciosArchivo, style: { display: "none" } })),
         React.createElement("button", { onClick: () => { setAgregando(true); setEditandoId(null); }, style: { background: C.verde, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontWeight: 700, fontSize: 13 } }, "+ Agregar servicio"),
         React.createElement("button", { onClick: resetearDefaults, style: { background: "#f1f5f9", color: C.grisd, border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 12 } }, "\u2139 Sin defaults heredados")
       )
+    ),
+
+    (importMsg || importados.length > 0) && React.createElement("div", { style: { background: "#eef6ff", border: "1.5px solid #93c5fd", borderRadius: 12, padding: 16, marginBottom: 18 } },
+      React.createElement("div", { style: { fontWeight: 800, color: C.azul, marginBottom: 6 } }, "🔎 Revisión de la importación"),
+      React.createElement("div", { style: { fontSize: 12, color: C.grisd, marginBottom: importados.length ? 12 : 0 } }, importMsg, " Nada se guarda hasta que confirmes."),
+      importados.length > 0 && React.createElement("div", { style: { overflowX: "auto" } }, React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", background: "#fff" } },
+        React.createElement("thead", null, React.createElement("tr", null, ["Usar", "Servicio detectado", "Categoría", "Precio (RD$)", "Comisión"].map(function(h){return React.createElement("th", { key:h, style:thStyle }, h);}))),
+        React.createElement("tbody", null, importados.map(function(s,i){ return React.createElement("tr", {key:i},
+          React.createElement("td", {style:tdStyle}, React.createElement("input", {type:"checkbox",checked:s.incluir,onChange:function(e){actualizarImportado(i,"incluir",e.target.checked);}})),
+          React.createElement("td", {style:tdStyle}, React.createElement("input", {value:s.nombre,onChange:function(e){actualizarImportado(i,"nombre",e.target.value);},style:{width:"100%",padding:7,border:"1px solid #cbd5e1",borderRadius:6}})),
+          React.createElement("td", {style:tdStyle}, React.createElement("select", {value:s.categoria,onChange:function(e){actualizarImportado(i,"categoria",e.target.value);},style:{padding:7,border:"1px solid #cbd5e1",borderRadius:6}}, React.createElement("option",{value:"grooming"},"Grooming"),React.createElement("option",{value:"veterinaria"},"Veterinaria"))),
+          React.createElement("td", {style:tdStyle}, React.createElement("input", {type:"number",value:s.precio,onChange:function(e){actualizarImportado(i,"precio",e.target.value);},style:{width:110,padding:7,border:"1px solid #cbd5e1",borderRadius:6}})),
+          React.createElement("td", {style:tdStyle}, React.createElement("input", {type:"number",value:s.comision,onChange:function(e){actualizarImportado(i,"comision",e.target.value);},style:{width:100,padding:7,border:"1px solid #cbd5e1",borderRadius:6}}))
+        );}))
+      )),
+      importados.length > 0 && React.createElement("div", {style:{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}, React.createElement("button",{onClick:function(){setImportados([]);setImportMsg("");},style:{border:"none",borderRadius:7,padding:"9px 14px",cursor:"pointer"}},"Cancelar"),React.createElement("button",{onClick:confirmarImportacion,style:{background:C.verde,color:"#fff",border:"none",borderRadius:7,padding:"9px 16px",fontWeight:800,cursor:"pointer"}},"✓ Confirmar e integrar"))
     ),
 
     // Selector de sección
