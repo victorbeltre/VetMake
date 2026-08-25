@@ -10,7 +10,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260825-service-advisor-v5";
+      var V = "20260825-complete-onboarding-v6";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -7511,29 +7511,47 @@ function vetMapImportRow(module, row, idx, stamp) {
 
 function TutorialVetMake({ setTab, tenant }) {
   const [paso, setPaso] = useState(() => Number(localStorage.getItem("vetmake_tutorial_paso") || 0));
+  const [completados, setCompletados] = useState(() => { try { return JSON.parse(localStorage.getItem("vetmake_tutorial_completados") || "[]"); } catch (_) { return []; } });
   const pasos = [
-    ["🏥", "Completa el perfil del negocio", "Agrega logo, dirección, teléfono, RNC, redes y colores para que facturas y mensajes salgan con tu identidad.", "configuracion"],
-    ["📥", "Importa tu información actual", "Sube Excel o CSV. VetMake detecta hojas y columnas, muestra una vista previa y solo integra lo que confirmes.", "importar"],
-    ["⚙️", "Configura servicios y precios", "Crea el catálogo real de grooming, veterinaria y otros servicios de Petmarket.", "servicios"],
-    ["👥", "Configura el equipo", "Asigna cargos, roles, salarios y comisiones. Cada usuario verá únicamente su negocio.", "configuracion"],
-    ["📅", "Aprende el flujo diario", "Agenda una cita, registra la venta, cobra, actualiza inventario y programa el seguimiento.", "agenda"],
-    ["📊", "Revisa resultados", "El Dashboard y Reportes convierten ventas, nómina y gastos en utilidad, alertas y recomendaciones.", "dashboard"]
+    {icon:"🏥",titulo:"Identidad y datos legales",desc:"Completa la información que aparecerá en facturas, mensajes y documentos del negocio.",tab:"configuracion",tareas:["Nombre comercial, descripción y color", "RNC, teléfono, WhatsApp y correo", "Dirección, sitio web y redes sociales"]},
+    {icon:"👥",titulo:"Equipo, cargos y accesos",desc:"Registra a las personas que operarán VetMake y entrega únicamente los permisos que necesitan.",tab:"configuracion",tareas:["Agregar empleados activos", "Definir cargo, salario y tipo de pago", "Asignar rol de acceso y comisión", "Comprobar que cada usuario puede entrar"]},
+    {icon:"📥",titulo:"Importar los datos existentes",desc:"Sube hojas de cálculo del negocio; revisa la clasificación antes de integrar clientes, inventario, ventas, gastos, nómina y citas.",tab:"importar",tareas:["Seleccionar archivos", "Revisar hojas y módulos detectados", "Corregir datos incompletos", "Confirmar la integración y conservar un respaldo"]},
+    {icon:"⚙️",titulo:"Catálogo de servicios",desc:"Importa, crea o genera recomendaciones para los servicios de grooming y veterinaria.",tab:"servicios",tareas:["Crear baños y grooming por tamaño", "Agregar servicios veterinarios aplicables", "Definir precios y comisiones", "Revisar qué incluye cada servicio"]},
+    {icon:"📦",titulo:"Inventario inicial",desc:"Registra productos, medicamentos, alimentos e insumos para vender y operar.",tab:"inventario",tareas:["Existencias y unidades correctas", "Costo y precio de venta", "Stock mínimo y alertas", "Lotes o vencimientos cuando correspondan"]},
+    {icon:"🚚",titulo:"Proveedores y costos",desc:"Relaciona los artículos con sus suplidores y valida los costos de reposición.",tab:"inventario",tareas:["Nombre y contacto del proveedor", "Costo de compra actualizado", "Producto asociado", "Condiciones y frecuencia de reposición"]},
+    {icon:"🐾",titulo:"Clientes y mascotas",desc:"Verifica las fichas del CRM y aprende a registrar propietarios y mascotas correctamente.",tab:"clientes",tareas:["Datos del propietario y WhatsApp", "Especie, raza, sexo y tamaño", "Alergias y condiciones", "Notas e historial relevante"]},
+    {icon:"📅",titulo:"Agenda y disponibilidad",desc:"Realiza una cita de prueba y confirma que empleado, servicio, duración y precio estén correctos.",tab:"agenda",tareas:["Crear una cita de prueba", "Asignar profesional y servicio", "Evitar choques de horario", "Reprogramar y cancelar correctamente"]},
+    {icon:"💰",titulo:"Venta de prueba",desc:"Simula la atención completa de una mascota y registra una venta para comprobar precios, comisiones e inventario.",tab:"ventas",tareas:["Seleccionar cliente y servicio", "Agregar productos si aplica", "Aplicar descuento autorizado", "Confirmar total, comisión y responsable"]},
+    {icon:"💵",titulo:"Cobros y saldos pendientes",desc:"Configura las formas de pago y prueba un cobro completo y un abono.",tab:"cobros",tareas:["Efectivo, tarjeta y transferencia", "Registrar un abono", "Consultar saldo pendiente", "Emitir constancia del cobro"]},
+    {icon:"📄",titulo:"Facturación",desc:"Genera una factura de prueba y revisa identidad, impuestos, conceptos y totales antes de usarla con clientes.",tab:"facturas",tareas:["Datos fiscales del negocio", "Datos del cliente", "Servicios, productos e impuestos", "Vista final y descarga"]},
+    {icon:"🔔",titulo:"Seguimientos automáticos",desc:"Programa recordatorios de vacunas, desparasitación, controles y próximas visitas.",tab:"seguimientos",tareas:["Elegir tipo de seguimiento", "Definir próxima fecha", "Validar teléfono del cliente", "Marcar como completado y reprogramar"]},
+    {icon:"💬",titulo:"Mensajes de WhatsApp",desc:"Revisa las plantillas y prueba el mensaje que recibirá el cliente para citas y seguimientos.",tab:"whatsapp",tareas:["Número comercial correcto", "Saludo e identidad del negocio", "Plantillas de cita y recordatorio", "Prueba de apertura en WhatsApp"]},
+    {icon:"💸",titulo:"Gastos y cuentas del negocio",desc:"Define cómo registrar alquiler, servicios, compras, transporte y otros egresos.",tab:"gastos",tareas:["Categorías habituales", "Proveedor y comprobante", "Forma de pago", "Registrar un gasto de prueba"]},
+    {icon:"👨‍💼",titulo:"Nómina y comisiones",desc:"Confirma salarios, descuentos y comisiones antes del primer cierre de nómina.",tab:"nomina",tareas:["Salario o modalidad de pago", "Comisión por servicio", "Descuentos autorizados", "Revisión del pago neto"]},
+    {icon:"🧾",titulo:"Cierre de caja",desc:"Practica el cierre diario y compara lo registrado con el efectivo y los pagos electrónicos.",tab:"caja",tareas:["Fondo inicial", "Ventas por forma de pago", "Gastos o retiros de caja", "Diferencias y cierre final"]},
+    {icon:"🔔",titulo:"Alertas y notificaciones",desc:"Comprueba vencimientos, poco inventario, citas, cuentas por cobrar y tareas operativas.",tab:"notificaciones",tareas:["Revisar alertas activas", "Asignar responsables", "Resolver una alerta de prueba", "Confirmar frecuencia de revisión"]},
+    {icon:"📊",titulo:"Reportes y control gerencial",desc:"Verifica que ventas, gastos, nómina y utilidad coincidan con las operaciones de prueba.",tab:"reportes",tareas:["Ventas por período", "Gastos y nómina", "Comisiones", "Utilidad y datos anómalos"]},
+    {icon:"🚀",titulo:"Simulación de apertura",desc:"Haz el recorrido completo como si fuera el primer cliente y corrige cualquier detalle antes de operar.",tab:"dashboard",tareas:["Crear cliente y mascota", "Agendar y completar cita", "Vender, cobrar y facturar", "Descontar inventario y crear seguimiento", "Cerrar caja y revisar reportes"]}
   ];
   const go = (i) => { const n=Math.max(0,Math.min(pasos.length-1,i)); setPaso(n); localStorage.setItem("vetmake_tutorial_paso",String(n)); };
   const p = pasos[paso];
+  const terminado = completados.includes(paso);
+  const progreso = Math.round(completados.length / pasos.length * 100);
+  function alternarCompletado() { const next = terminado ? completados.filter(i=>i!==paso) : [...completados,paso].sort((a,b)=>a-b); setCompletados(next); localStorage.setItem("vetmake_tutorial_completados",JSON.stringify(next)); if(!terminado && paso < pasos.length-1) go(paso+1); }
   return React.createElement("div", null,
     React.createElement("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16,marginBottom:22,flexWrap:"wrap"}},
       React.createElement("div", null, React.createElement("h2", {style:{fontFamily:"Georgia,serif",fontSize:28,marginBottom:6}}, "🧭 Aprende a usar VetMake"), React.createElement("p", {style:{color:C.grisd,fontSize:13,lineHeight:1.6}}, "Primeros pasos para ", tenant?.negocio?.nombre || "tu negocio", ". Puedes volver a este tutorial cuando quieras.")),
-      React.createElement("div", {style:{background:C.verdeL,color:C.verde,borderRadius:999,padding:"7px 13px",fontWeight:800,fontSize:12}}, `${paso+1} de ${pasos.length}`)
+      React.createElement("div", {style:{minWidth:180}}, React.createElement("div", {style:{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:800,color:C.verde,marginBottom:5}}, React.createElement("span",null,`${paso+1} de ${pasos.length}`),React.createElement("span",null,`${progreso}% listo`)), React.createElement("div",{style:{height:8,borderRadius:99,background:"#dfeae3",overflow:"hidden"}},React.createElement("div",{style:{height:"100%",width:progreso+"%",background:C.verde,transition:"width .2s"}})))
     ),
     React.createElement("div", {style:{display:"grid",gridTemplateColumns:"minmax(210px,280px) 1fr",gap:18,alignItems:"start"}},
-      React.createElement(Card, {style:{padding:12}}, pasos.map((x,i)=>React.createElement("button", {key:i,onClick:()=>go(i),style:{width:"100%",border:"none",borderRadius:10,padding:"11px 12px",marginBottom:5,textAlign:"left",cursor:"pointer",background:i===paso?C.verde:"transparent",color:i===paso?"#fff":C.negro,fontWeight:700,fontSize:12}}, `${i<paso?"✅":x[0]} ${x[1]}`))),
+      React.createElement(Card, {style:{padding:12,maxHeight:"68vh",overflowY:"auto"}}, pasos.map((x,i)=>React.createElement("button", {key:i,onClick:()=>go(i),style:{width:"100%",border:"none",borderRadius:10,padding:"11px 12px",marginBottom:5,textAlign:"left",cursor:"pointer",background:i===paso?C.verde:"transparent",color:i===paso?"#fff":C.negro,fontWeight:700,fontSize:12}}, `${completados.includes(i)?"✅":x.icon} ${x.titulo}`))),
       React.createElement(Card, {style:{minHeight:300,borderTop:`5px solid ${C.verde}`}},
-        React.createElement("div", {style:{fontSize:48,marginBottom:12}}, p[0]),
-        React.createElement("h3", {style:{fontFamily:"Georgia,serif",fontSize:23,marginBottom:10}}, p[1]),
-        React.createElement("p", {style:{fontSize:14,color:C.grisd,lineHeight:1.7,maxWidth:720}}, p[2]),
-        React.createElement("div", {style:{background:"#f7faf8",border:"1px solid #dfeae3",borderRadius:10,padding:14,marginTop:20,fontSize:12,lineHeight:1.6}}, "💡 VetMake nunca mezcla clínicas: las importaciones y configuraciones quedan vinculadas al negocio de tu sesión."),
-        React.createElement("div", {style:{display:"flex",gap:10,marginTop:22,flexWrap:"wrap"}}, paso>0&&React.createElement(Btn,{outline:true,onClick:()=>go(paso-1)},"← Anterior"), React.createElement(Btn,{onClick:()=>setTab(p[3])},"Abrir esta función →"), paso<pasos.length-1?React.createElement(Btn,{color:C.azul,onClick:()=>go(paso+1)},"Siguiente paso"):React.createElement(Btn,{color:C.azul,onClick:()=>{localStorage.setItem("vetmake_tutorial_completado","1");setTab("dashboard");}},"✅ Finalizar tutorial"))
+        React.createElement("div", {style:{fontSize:48,marginBottom:12}}, p.icon),
+        React.createElement("h3", {style:{fontFamily:"Georgia,serif",fontSize:23,marginBottom:10}}, p.titulo),
+        React.createElement("p", {style:{fontSize:14,color:C.grisd,lineHeight:1.7,maxWidth:720}}, p.desc),
+        React.createElement("div",{style:{marginTop:18,display:"grid",gap:8}},p.tareas.map((t,i)=>React.createElement("div",{key:i,style:{display:"flex",gap:9,alignItems:"flex-start",background:"#f7faf8",border:"1px solid #dfeae3",borderRadius:9,padding:"10px 12px",fontSize:12,lineHeight:1.45}},React.createElement("span",null,"□"),React.createElement("span",null,t)))),
+        React.createElement("div", {style:{background:"#fff8e6",border:"1px solid #f5d27a",borderRadius:10,padding:12,marginTop:16,fontSize:12,lineHeight:1.6}}, "💡 No marques este paso hasta probarlo con datos reales o de prueba. Puedes regresar y corregirlo cuando quieras."),
+        React.createElement("div", {style:{display:"flex",gap:10,marginTop:22,flexWrap:"wrap"}}, paso>0&&React.createElement(Btn,{outline:true,onClick:()=>go(paso-1)},"← Anterior"), React.createElement(Btn,{onClick:()=>setTab(p.tab)},"Abrir esta función →"), React.createElement(Btn,{color:terminado?C.grisd:C.verde,onClick:alternarCompletado},terminado?"↩ Marcar pendiente":"✅ Paso comprobado"), paso<pasos.length-1&&React.createElement(Btn,{color:C.azul,onClick:()=>go(paso+1)},"Siguiente →"), paso===pasos.length-1&&React.createElement(Btn,{color:C.azul,onClick:()=>{if(completados.length<pasos.length&&!confirm("Aún hay pasos pendientes. ¿Deseas finalizar el tutorial de todos modos?"))return;localStorage.setItem("vetmake_tutorial_completado","1");setTab("dashboard");}},"🚀 Finalizar y operar"))
       )
     )
   );
