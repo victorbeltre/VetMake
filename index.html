@@ -10,7 +10,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260825-hide-whatsapp-inbox-v10";
+      var V = "20260825-public-intake-v11";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -103,7 +103,7 @@ async function obtenerContextoNegocio() {
 
     const membership = memberships[0];
     const businessRes = await fetch(
-      SUPA_URL + "/rest/v1/negocios?id=eq." + encodeURIComponent(membership.negocio_id) + "&select=id,nombre,slug,plan,moneda,zona_horaria,color_primario,logo_url,tagline,telefono,direccion,rnc,email,whatsapp,instagram,facebook,sitio_web,activo&limit=1",
+      SUPA_URL + "/rest/v1/negocios?id=eq." + encodeURIComponent(membership.negocio_id) + "&select=id,nombre,slug,plan,moneda,zona_horaria,color_primario,logo_url,tagline,telefono,direccion,rnc,email,whatsapp,instagram,facebook,sitio_web,activo,formulario_token,formulario_activo&limit=1",
       { headers }
     );
     if (!businessRes.ok) throw new Error("No se pudo leer la clínica de VetMake");
@@ -8018,6 +8018,62 @@ function CatalogoPublico() {
     }, "💬")
   );
 }
+function FormularioAdmisionPublico({ token }) {
+  const E = React.createElement;
+  const [negocio, setNegocio] = React.useState(null);
+  const [estado, setEstado] = React.useState("cargando");
+  const [error, setError] = React.useState("");
+  const [enviando, setEnviando] = React.useState(false);
+  const [datos, setDatos] = React.useState({ especie: "Perro", esterilizado: false, canal: "Recomendación", website: "" });
+  const color = negocio?.color || "#1a6b3a";
+  const cambiar = (campo) => (e) => setDatos((d) => ({ ...d, [campo]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
+
+  React.useEffect(() => {
+    fetch(SUPA_FUNCTIONS_URL + "/vetmake-intake", {
+      method: "POST", headers: { "Content-Type": "application/json", apikey: SUPA_KEY },
+      body: JSON.stringify({ action: "config", token })
+    }).then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; })
+      .then((j) => { setNegocio(j.negocio); setEstado("formulario"); })
+      .catch((e) => { setError(e.message || "El enlace no es válido."); setEstado("error"); });
+  }, [token]);
+
+  async function enviar(e) {
+    e.preventDefault(); setError(""); setEnviando(true);
+    try {
+      const r = await fetch(SUPA_FUNCTIONS_URL + "/vetmake-intake", {
+        method: "POST", headers: { "Content-Type": "application/json", apikey: SUPA_KEY },
+        body: JSON.stringify({ ...datos, action: "submit", token })
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "No se pudo enviar.");
+      setEstado("listo"); window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e2) { setError(e2.message || "No se pudo enviar. Inténtalo otra vez."); }
+    finally { setEnviando(false); }
+  }
+  const campo = (label, nombre, tipo = "text", requerido = false, placeholder = "") => E("label", { style: { display: "flex", flexDirection: "column", gap: 6, fontSize: 13, fontWeight: 700, color: "#334155" } },
+    label + (requerido ? " *" : ""), E("input", { type: tipo, required: requerido, value: datos[nombre] || "", onChange: cambiar(nombre), placeholder, style: { border: "1px solid #cbd5e1", borderRadius: 9, padding: "11px 12px", fontSize: 15, outlineColor: color } }));
+  const select = (label, nombre, opciones, requerido = false) => E("label", { style: { display: "flex", flexDirection: "column", gap: 6, fontSize: 13, fontWeight: 700, color: "#334155" } }, label + (requerido ? " *" : ""),
+    E("select", { required: requerido, value: datos[nombre] || "", onChange: cambiar(nombre), style: { border: "1px solid #cbd5e1", borderRadius: 9, padding: "11px 12px", fontSize: 15, background: "#fff" } }, opciones.map((x) => E("option", { key: x, value: x }, x))));
+  const seccion = (titulo, hijos) => E("section", { style: { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 18, marginBottom: 14 } }, E("h3", { style: { margin: "0 0 14px", color, fontSize: 17 } }, titulo), E("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 13 } }, hijos));
+
+  if (estado === "cargando") return E("div", { style: { minHeight: "100vh", display: "grid", placeItems: "center", color: "#475569" } }, "Preparando formulario…");
+  if (estado === "error") return E("div", { style: { minHeight: "100vh", display: "grid", placeItems: "center", padding: 20 } }, E("div", { style: { background: "#fff", padding: 28, borderRadius: 16, maxWidth: 480, textAlign: "center" } }, E("div", { style: { fontSize: 42 } }, "🔒"), E("h2", null, "Formulario no disponible"), E("p", { style: { color: "#64748b" } }, error)));
+  if (estado === "listo") return E("div", { style: { minHeight: "100vh", display: "grid", placeItems: "center", padding: 20, background: color } }, E("div", { style: { background: "#fff", padding: "38px 30px", borderRadius: 18, maxWidth: 520, textAlign: "center", boxShadow: "0 18px 50px #0002" } }, E("div", { style: { fontSize: 54 } }, "✅"), E("h1", { style: { color, fontSize: 25 } }, "¡Registro recibido!"), E("p", { style: { color: "#475569", lineHeight: 1.6 } }, negocio.nombre + " ya recibió los datos tuyos y de tu mascota. Al llegar podrán atenderte y registrar tu servicio más rápido.")));
+
+  return E("div", { style: { minHeight: "100vh", background: "linear-gradient(150deg," + color + " 0," + color + " 230px,#f1f5f9 230px)", padding: "32px 16px" } },
+    E("div", { style: { maxWidth: 820, margin: "0 auto" } },
+      E("header", { style: { color: "#fff", textAlign: "center", marginBottom: 25 } }, negocio.logoUrl && E("img", { src: negocio.logoUrl, alt: "", style: { height: 62, maxWidth: 180, objectFit: "contain", marginBottom: 8 } }), E("h1", { style: { margin: 0, fontSize: 28 } }, "🐾 " + negocio.nombre), E("p", { style: { margin: "7px 0 0", opacity: .9 } }, "Formulario de admisión · " + negocio.tagline)),
+      E("form", { onSubmit: enviar },
+        seccion("👤 Datos de contacto", [campo("Nombre y apellido", "propietario", "text", true), campo("Teléfono / WhatsApp", "telefono", "tel", true), campo("Correo electrónico", "email", "email"), campo("Dirección", "direccion")]),
+        seccion("🐶 Datos de la mascota", [campo("Nombre de la mascota", "mascota", "text", true), select("Especie", "especie", ["Perro", "Gato", "Ave", "Conejo", "Otro"], true), campo("Raza", "raza"), select("Sexo", "sexo", ["", "Macho", "Hembra"]), campo("Fecha de nacimiento", "fechaNacimiento", "date"), campo("Color", "color"), select("Tamaño", "tamano", ["", "Pequeño", "Mediano", "Grande", "Gigante"]), E("label", { key: "est", style: { display: "flex", alignItems: "center", gap: 9, marginTop: 24, fontSize: 14, fontWeight: 700 } }, E("input", { type: "checkbox", checked: !!datos.esterilizado, onChange: cambiar("esterilizado") }), "Está esterilizado/a")]),
+        seccion("🩺 Salud y visita", [campo("Alergias", "alergias"), campo("Medicamentos actuales", "medicamentos"), campo("Condiciones o antecedentes", "condiciones"), campo("Alerta médica importante", "alertaMedica"), campo("Servicio que necesita", "servicio", "text", false, "Ej.: consulta, vacuna, baño…"), select("¿Cómo nos conoció?", "canal", ["Recomendación", "Instagram", "Facebook", "Google", "Pasé por el local", "Otro"])]),
+        E("label", { style: { position: "absolute", left: "-9999px" } }, "Sitio web", E("input", { value: datos.website, onChange: cambiar("website"), tabIndex: -1, autoComplete: "off" })),
+        E("div", { style: { background: "#fff", borderRadius: 14, padding: 18 } }, E("label", { style: { display: "flex", gap: 10, alignItems: "flex-start", color: "#475569", fontSize: 13, lineHeight: 1.5 } }, E("input", { type: "checkbox", required: true, style: { marginTop: 3 } }), "Autorizo a " + negocio.nombre + " a usar estos datos para crear el expediente y comunicarse sobre la atención de mi mascota."), error && E("div", { style: { background: "#fff1f2", color: "#be123c", padding: 10, borderRadius: 8, marginTop: 12, fontSize: 13 } }, error), E("button", { disabled: enviando, type: "submit", style: { width: "100%", marginTop: 14, border: 0, borderRadius: 10, padding: 14, color: "#fff", background: enviando ? "#94a3b8" : color, fontSize: 15, fontWeight: 800, cursor: enviando ? "wait" : "pointer" } }, enviando ? "Enviando…" : "Enviar inscripción"), E("div", { style: { textAlign: "center", color: "#94a3b8", fontSize: 11, marginTop: 12 } }, "Información protegida · Formulario de " + negocio.nombre + " con VetMake"))
+      )
+    )
+  );
+}
+
 function PetColinas() {
   const [session, setSession] = useState(() => {
     try {
@@ -8176,6 +8232,8 @@ function PetColinas() {
     setSession(null);
   }
 
+  const intakeToken = new URLSearchParams(window.location.search).get("inscripcion");
+  if (intakeToken) return React.createElement(FormularioAdmisionPublico, { token: intakeToken });
   if (VETMAKE_ENABLE_LEGACY_INTEGRATIONS && window.location.search.includes("catalogo")) return React.createElement(CatalogoPublico, null);
   if (!authChecked) return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f5f6" } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 48, marginBottom: 12 } }, "\u{1F43E}"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 16, color: "#5a6472" } }, "Verificando sesi\xF3n...")));
   if (authFlow?.session && (authFlow.mode === "invite" || authFlow.mode === "recovery")) return React.createElement(AuthPasswordScreen, { session: authFlow.session, mode: authFlow.mode, onComplete: (next) => { sessionStorage.setItem(VETMAKE_SESSION_KEY, JSON.stringify(next)); setAuthFlow(null); setSession(next); }, onCancel: () => { sessionStorage.removeItem(VETMAKE_SESSION_KEY); setAuthFlow(null); setSession(null); } });
@@ -8472,7 +8530,7 @@ function PortalCaja({ session, tenant, onLogout, ventas, setVentas, deleteVenta,
       tab === "agenda" && E(Agenda, { citas, setCitas, deleteCita, clientes: clientesCaja, ventas, setVentas,
         tarifasGrooming, tarifasVet, setTab, refetchCitasAgenda: refetchCitas }),
       tab === "seguimientos" && E(Seguimientos, { seguimientos, setSeguimientos, clientes: clientesCaja, ventas }),
-      tab === "notificaciones" && E(TabNotificaciones, { clientes, setClientes, notifLeidas,
+      tab === "notificaciones" && E(TabNotificaciones, { clientes, setClientes, notifLeidas, tenant,
         marcarNotifLeida, marcarNotifLeidas, desmarcarNotif, setTab,
         setCrmClienteInicial: (d) => setClienteInicial(d ? { ...d, modo: "ventaCliente" } : null) })),
 
@@ -9064,7 +9122,7 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
     tab === "candidatos" && React.createElement(Candidatos, null),
     tab === "notificaciones" && /* @__PURE__ */ React.createElement(TabNotificaciones, {
       clientes: todosClientes, setClientes, notifLeidas, marcarNotifLeida, marcarNotifLeidas, desmarcarNotif,
-      setTab, setCrmClienteInicial
+      setTab, setCrmClienteInicial, tenant
     })), historial.length > 0 && !undoMsg && /* @__PURE__ */ React.createElement("div", { style: {
     position: "fixed",
     bottom: 24,
@@ -18056,12 +18114,25 @@ function AvisoClientesNuevos({ clientes, notifLeidas, setTab }) {
   );
 }
 
-function TabNotificaciones({ clientes, setClientes, notifLeidas, marcarNotifLeida, marcarNotifLeidas, desmarcarNotif, setTab, setCrmClienteInicial }) {
+function TabNotificaciones({ clientes, setClientes, notifLeidas, marcarNotifLeida, marcarNotifLeidas, desmarcarNotif, setTab, setCrmClienteInicial, tenant }) {
   const E = React.createElement;
   const leidas = notifLeidas instanceof Set ? notifLeidas : new Set();
   const C = { verde: "#1a6b3a", azul: "#1a4fa0", grisd: "#5a6472", rojo: "#e53e3e", morado: "#7c3aed" };
   const [sub, setSub] = React.useState("pendientes");
   const [busca, setBusca] = React.useState("");
+  const [copiado, setCopiado] = React.useState(false);
+  const formularioToken = tenant?.negocio?.formulario_token || "";
+  const formularioUrl = formularioToken ? window.location.origin + window.location.pathname + "?inscripcion=" + formularioToken : "";
+  async function copiarFormulario() {
+    if (!formularioUrl) return;
+    try { await navigator.clipboard.writeText(formularioUrl); setCopiado(true); setTimeout(() => setCopiado(false), 2200); }
+    catch { window.prompt("Copia este enlace:", formularioUrl); }
+  }
+  function compartirFormulario() {
+    if (!formularioUrl) return;
+    const texto = "Hola 👋 Para atenderte más rápido, completa los datos tuyos y de tu mascota en el formulario de " + vetMakeBusinessName() + ":\n" + formularioUrl;
+    window.open("https://wa.me/?text=" + encodeURIComponent(texto), "_blank", "noopener,noreferrer");
+  }
 
   // Escribe/quita la marca dentro de las notas del cliente. Al pasar por
   // setClientes se guarda en Supabase, asi que se ve desde cualquier equipo.
@@ -18273,6 +18344,18 @@ function TabNotificaciones({ clientes, setClientes, notifLeidas, marcarNotifLeid
           onClick: vaciarHistorico,
           style: { background: "#fee2e2", color: C.rojo, border: "none", borderRadius: 10, padding: "9px 16px", cursor: "pointer", fontWeight: 700, fontSize: 13 }
         }, "🗑️ Vaciar histórico"))
+    ),
+
+    E("div", { style: { background: "linear-gradient(120deg,#ecfdf5,#f5f3ff)", border: "1.5px solid #86efac", borderRadius: 14, padding: "16px 18px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap" } },
+      E("div", { style: { flex: 1, minWidth: 260 } },
+        E("div", { style: { fontWeight: 850, color: C.verde, fontSize: 15 } }, "🔗 Formulario público para clientes nuevos"),
+        E("div", { style: { color: C.grisd, fontSize: 12.5, marginTop: 4, lineHeight: 1.45 } }, "Envíalo antes de la primera visita. Al completarlo, el cliente y su mascota aparecerán inmediatamente aquí y en el Dashboard."),
+        formularioUrl && E("div", { style: { color: "#64748b", fontSize: 11, marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 650 } }, formularioUrl),
+        !formularioUrl && E("div", { style: { color: C.rojo, fontSize: 12, marginTop: 7 } }, "El enlace se habilitará al terminar la actualización del sistema.")),
+      E("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+        E("button", { disabled: !formularioUrl, onClick: copiarFormulario, style: { border: 0, borderRadius: 9, padding: "9px 14px", background: copiado ? "#16a34a" : "#fff", color: copiado ? "#fff" : C.verde, fontWeight: 750, cursor: formularioUrl ? "pointer" : "not-allowed", boxShadow: "0 1px 4px #0001" } }, copiado ? "✓ Copiado" : "📋 Copiar enlace"),
+        E("button", { disabled: !formularioUrl, onClick: compartirFormulario, style: { border: 0, borderRadius: 9, padding: "9px 14px", background: "#25D366", color: "#fff", fontWeight: 750, cursor: formularioUrl ? "pointer" : "not-allowed" } }, "💬 Enviar por WhatsApp"),
+        formularioUrl && E("button", { onClick: () => window.open(formularioUrl, "_blank", "noopener,noreferrer"), style: { border: 0, borderRadius: 9, padding: "9px 14px", background: C.morado, color: "#fff", fontWeight: 750, cursor: "pointer" } }, "↗ Abrir formulario"))
     ),
 
     E("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 } },
