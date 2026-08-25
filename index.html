@@ -10,7 +10,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260824-auth-v1";
+      var V = "20260825-onboarding-v1";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -2081,6 +2081,7 @@ const Select = ({ label, value, onChange, options }) => /* @__PURE__ */ React.cr
 const KPI = ({ label, val, color = C.verde, sub }) => /* @__PURE__ */ React.createElement(Card, { style: { textAlign: "center", borderTop: `4px solid ${color}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: C.grisd, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 } }, label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "Georgia,serif", fontSize: 28, color, fontWeight: 700, lineHeight: 1 } }, val), sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: C.grisd, marginTop: 6 } }, sub));
 const TABS = [
   { id: "dashboard", icon: "\u{1F4CA}", label: "Dashboard" },
+  { id: "tutorial", icon: "\u{1F9ED}", label: "Tutorial y primeros pasos" },
   { id: "agenda", icon: "\u{1F4C5}", label: "Agenda" },
   { id: "ventas", icon: "\u{1F4B0}", label: "Ventas" },
   { id: "clientes", icon: "\u{1F43E}", label: "Clientes / CRM" },
@@ -2094,7 +2095,7 @@ const TABS = [
   { id: "planes", icon: "\u{1F4B3}", label: "Planes" },
   { id: "servicios", icon: "\u2699\uFE0F", label: "Servicios" },
   { id: "configuracion", icon: "\u{1F527}", label: "Configuración" },
-  { id: "importar", icon: "\u{1F4E4}", label: "Exportar Excel" },
+  { id: "importar", icon: "\u{1F4E5}", label: "Importar / Exportar" },
   ...(VETMAKE_ENABLE_LEGACY_INTEGRATIONS ? [
     { id: "vozia", icon: "\u{1F3A4}", label: "Voz IA" },
     { id: "llamadas", icon: "\u{1F4DE}", label: "Llamadas Sof\xEDa" },
@@ -7432,6 +7433,164 @@ function VozIA() {
     )
   );
 }
+const VETMAKE_IMPORT_MODULES = {
+  ventas: { label: "Ventas y facturación", icon: "💰", table: "pc_ventas", words: ["venta", "factura", "ingreso", "servicio", "total", "forma de pago"] },
+  clientes: { label: "Clientes / CRM", icon: "🐾", table: "pc_clientes", words: ["cliente", "crm", "mascota", "propietario", "telefono", "raza"] },
+  inventario: { label: "Inventario y proveedores", icon: "📦", table: "pc_inventario", words: ["inventario", "producto", "stock", "existencia", "proveedor", "precio venta"] },
+  gastos: { label: "Gastos y compras", icon: "💸", table: "pc_gastos", words: ["gasto", "compra", "egreso", "proveedor", "monto", "categoria"] },
+  empleados: { label: "Empleados", icon: "👥", table: "pc_empleados", words: ["empleado", "personal", "cargo", "salario", "mensualidad", "comision"] },
+  nomina: { label: "Nómina", icon: "🧾", table: "pc_pagos", words: ["nomina", "pago empleado", "mensualidad", "descuento", "comisiones", "mes"] },
+  citas: { label: "Agenda y citas", icon: "📅", table: "pc_citas", words: ["cita", "agenda", "hora", "duracion", "servicio", "mascota"] },
+  seguimientos: { label: "Seguimientos", icon: "🔔", table: "pc_seguimientos", words: ["seguimiento", "proxima fecha", "vacuna", "recordatorio", "frecuencia"] },
+  omitir: { label: "No importar", icon: "⏭️", table: null, words: [] }
+};
+
+function vetImportNorm(v) {
+  return String(v == null ? "" : v).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/[^a-z0-9]+/g, " ").trim();
+}
+function vetImportValue(row, aliases, fallback = "") {
+  const keys = Object.keys(row || {});
+  for (const alias of aliases) {
+    const target = vetImportNorm(alias);
+    const exact = keys.find(k => vetImportNorm(k) === target);
+    if (exact != null && row[exact] !== "" && row[exact] != null) return row[exact];
+  }
+  for (const alias of aliases) {
+    const target = vetImportNorm(alias);
+    const partial = keys.find(k => vetImportNorm(k).includes(target));
+    if (partial != null && row[partial] !== "" && row[partial] != null) return row[partial];
+  }
+  return fallback;
+}
+function vetImportNumber(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const s = String(v == null ? "" : v).replace(/[^0-9,.-]/g, "");
+  if (!s) return 0;
+  const normalized = s.includes(",") && !s.includes(".") ? s.replace(",", ".") : s.replace(/,/g, "");
+  return Number(normalized) || 0;
+}
+function vetImportDate(v) {
+  if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0, 10);
+  if (typeof v === "number" && window.XLSX?.SSF) {
+    const d = window.XLSX.SSF.parse_date_code(v);
+    if (d) return `${d.y}-${String(d.m).padStart(2,"0")}-${String(d.d).padStart(2,"0")}`;
+  }
+  const s = String(v || "").trim();
+  if (/^\d{4}-\d{1,2}-\d{1,2}/.test(s)) return s.slice(0,10);
+  const m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+  if (m) return `${m[3].length === 2 ? "20" + m[3] : m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  return new Date().toISOString().slice(0,10);
+}
+function vetDetectModule(sheetName, rows) {
+  const headers = Object.keys(rows?.[0] || {}).join(" ");
+  const hay = vetImportNorm(sheetName + " " + headers);
+  let best = "omitir", score = 0;
+  Object.entries(VETMAKE_IMPORT_MODULES).forEach(([id, cfg]) => {
+    if (id === "omitir") return;
+    const s = cfg.words.reduce((n, w) => n + (hay.includes(vetImportNorm(w)) ? 1 : 0), 0);
+    if (s > score) { best = id; score = s; }
+  });
+  return score ? best : "omitir";
+}
+function vetMapImportRow(module, row, idx, stamp) {
+  const idNum = stamp + idx;
+  const txt = (aliases, fb="") => String(vetImportValue(row, aliases, fb) || "").trim();
+  const num = aliases => vetImportNumber(vetImportValue(row, aliases, 0));
+  const date = aliases => vetImportDate(vetImportValue(row, aliases, ""));
+  if (module === "ventas") return { id:idNum, fecha:date(["fecha","date"]), cliente:txt(["cliente / mascota","cliente","mascota","nombre"]), area:txt(["area","departamento"],"general").toLowerCase(), servicio:txt(["servicio / descripcion","servicio","descripcion","concepto"]), total:num(["total (rd$)","total","monto","importe"]), descuento:num(["descuento"]), comision:num(["comision"]), formapago:txt(["forma de pago","metodo de pago","pago"]), recibidopor:txt(["recibido por","cajero","empleado"]), notas:txt(["notas","observaciones"]) };
+  if (module === "clientes") return { id:idNum, nombremascota:txt(["mascota","nombre mascota","cliente / mascota","nombre"]), especie:txt(["especie"]), raza:txt(["raza"]), sexo:txt(["sexo"]), tamano:txt(["tamano","tamaño"]), nombrepropietario:txt(["propietario","dueno","dueño","cliente"]), telefono:txt(["telefono","celular","whatsapp"]), email:txt(["email","correo"]), direccion:txt(["direccion"]), alergias:txt(["alergias"]), condiciones:txt(["condiciones","diagnostico"]), notas:txt(["notas","observaciones"]), fecharegistro:date(["fecha registro","fecha"]) };
+  if (module === "inventario") return { id:"imp_inv_"+idNum, nombre:txt(["producto","nombre","articulo","item"]), categoria:txt(["categoria","tipo"],"general"), stock:num(["stock actual","stock","existencia","cantidad"]), stockmin:num(["stock minimo","minimo"]), preciocompra:num(["precio compra","costo","costo unitario"]), precioventa:num(["precio venta","venta"]), proveedor:txt(["proveedor","suplidor"]), fechaentrada:date(["fecha entrada","fecha"]), notas:txt(["notas","observaciones"]) };
+  if (module === "gastos") return { id:idNum, fecha:date(["fecha"]), categoria:txt(["categoria","tipo"],"Otros"), descripcion:txt(["descripcion","concepto","detalle"]), monto:num(["monto","total","importe"]), formapago:txt(["forma de pago","metodo de pago"]), proveedor:txt(["proveedor","suplidor"]), notas:txt(["notas","observaciones"]) };
+  if (module === "empleados") { const rawRol=vetImportNorm(txt(["rol"],"caja")); const rol=/admin/.test(rawRol)?"admin":/veter/.test(rawRol)?"veterinario":/groom|pelu/.test(rawRol)?"groomer":"caja"; return { id:"imp_emp_"+idNum, nombre:txt(["empleado","nombre"]), cargo:txt(["cargo","puesto"]), mensualidad:num(["mensualidad","salario","sueldo"]), email:txt(["email","correo"]), telefono:txt(["telefono","celular"]), rol, activo:true, comision_pct:Math.min(100,num(["comision %","comision","porcentaje"])), tipo_pago:"mensual" }; }
+  if (module === "nomina") return { id:idNum, mes:txt(["mes","periodo"],new Date().toISOString().slice(0,7)), empleadoid:txt(["empleado id","id empleado","empleado"]), mensualidad:num(["mensualidad","salario","sueldo"]), comisiones:num(["comisiones","comision"]), descuentos:num(["descuentos","descuento"]), notas:txt(["notas","observaciones"]) };
+  if (module === "citas") return { id:idNum, fecha:date(["fecha"]), hora:txt(["hora"],"09:00"), duracion:num(["duracion","minutos"]) || 60, tipo:txt(["tipo","area"],"consulta"), empleado:txt(["empleado","doctor","groomer"]), estado:txt(["estado"],"pendiente"), nombrecliente:txt(["cliente","propietario"]), nombremascota:txt(["mascota"]), telefono:txt(["telefono","celular"]), servicio:txt(["servicio","descripcion"]), precio:num(["precio","total","monto"]), notas:txt(["notas","observaciones"]) };
+  if (module === "seguimientos") return { id:String(idNum), mascota:txt(["mascota","nombre"]), propietario:txt(["propietario","cliente"]), telefono:txt(["telefono","celular"]), tipo:txt(["tipo","servicio"],"seguimiento"), frecuencia:num(["frecuencia"]), ultimafecha:date(["ultima fecha","fecha"]), proximafecha:date(["proxima fecha"]), activo:true, completado:false, notas:txt(["notas","observaciones"]) };
+  return null;
+}
+
+function TutorialVetMake({ setTab, tenant }) {
+  const [paso, setPaso] = useState(() => Number(localStorage.getItem("vetmake_tutorial_paso") || 0));
+  const pasos = [
+    ["🏥", "Completa el perfil del negocio", "Agrega logo, dirección, teléfono, RNC, redes y colores para que facturas y mensajes salgan con tu identidad.", "configuracion"],
+    ["📥", "Importa tu información actual", "Sube Excel o CSV. VetMake detecta hojas y columnas, muestra una vista previa y solo integra lo que confirmes.", "importar"],
+    ["⚙️", "Configura servicios y precios", "Crea el catálogo real de grooming, veterinaria y otros servicios de Petmarket.", "servicios"],
+    ["👥", "Configura el equipo", "Asigna cargos, roles, salarios y comisiones. Cada usuario verá únicamente su negocio.", "configuracion"],
+    ["📅", "Aprende el flujo diario", "Agenda una cita, registra la venta, cobra, actualiza inventario y programa el seguimiento.", "agenda"],
+    ["📊", "Revisa resultados", "El Dashboard y Reportes convierten ventas, nómina y gastos en utilidad, alertas y recomendaciones.", "dashboard"]
+  ];
+  const go = (i) => { const n=Math.max(0,Math.min(pasos.length-1,i)); setPaso(n); localStorage.setItem("vetmake_tutorial_paso",String(n)); };
+  const p = pasos[paso];
+  return React.createElement("div", null,
+    React.createElement("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16,marginBottom:22,flexWrap:"wrap"}},
+      React.createElement("div", null, React.createElement("h2", {style:{fontFamily:"Georgia,serif",fontSize:28,marginBottom:6}}, "🧭 Aprende a usar VetMake"), React.createElement("p", {style:{color:C.grisd,fontSize:13,lineHeight:1.6}}, "Primeros pasos para ", tenant?.negocio?.nombre || "tu negocio", ". Puedes volver a este tutorial cuando quieras.")),
+      React.createElement("div", {style:{background:C.verdeL,color:C.verde,borderRadius:999,padding:"7px 13px",fontWeight:800,fontSize:12}}, `${paso+1} de ${pasos.length}`)
+    ),
+    React.createElement("div", {style:{display:"grid",gridTemplateColumns:"minmax(210px,280px) 1fr",gap:18,alignItems:"start"}},
+      React.createElement(Card, {style:{padding:12}}, pasos.map((x,i)=>React.createElement("button", {key:i,onClick:()=>go(i),style:{width:"100%",border:"none",borderRadius:10,padding:"11px 12px",marginBottom:5,textAlign:"left",cursor:"pointer",background:i===paso?C.verde:"transparent",color:i===paso?"#fff":C.negro,fontWeight:700,fontSize:12}}, `${i<paso?"✅":x[0]} ${x[1]}`))),
+      React.createElement(Card, {style:{minHeight:300,borderTop:`5px solid ${C.verde}`}},
+        React.createElement("div", {style:{fontSize:48,marginBottom:12}}, p[0]),
+        React.createElement("h3", {style:{fontFamily:"Georgia,serif",fontSize:23,marginBottom:10}}, p[1]),
+        React.createElement("p", {style:{fontSize:14,color:C.grisd,lineHeight:1.7,maxWidth:720}}, p[2]),
+        React.createElement("div", {style:{background:"#f7faf8",border:"1px solid #dfeae3",borderRadius:10,padding:14,marginTop:20,fontSize:12,lineHeight:1.6}}, "💡 VetMake nunca mezcla clínicas: las importaciones y configuraciones quedan vinculadas al negocio de tu sesión."),
+        React.createElement("div", {style:{display:"flex",gap:10,marginTop:22,flexWrap:"wrap"}}, paso>0&&React.createElement(Btn,{outline:true,onClick:()=>go(paso-1)},"← Anterior"), React.createElement(Btn,{onClick:()=>setTab(p[3])},"Abrir esta función →"), paso<pasos.length-1?React.createElement(Btn,{color:C.azul,onClick:()=>go(paso+1)},"Siguiente paso"):React.createElement(Btn,{color:C.azul,onClick:()=>{localStorage.setItem("vetmake_tutorial_completado","1");setTab("dashboard");}},"✅ Finalizar tutorial"))
+      )
+    )
+  );
+}
+
+function ImportadorInteligente({ onImported }) {
+  const [sheets,setSheets]=useState([]), [busy,setBusy]=useState(false), [msg,setMsg]=useState(null);
+  async function leer(ev) {
+    const files=[...(ev.target.files||[])]; if(!files.length)return;
+    if(!window.XLSX)return setMsg({error:true,text:"La librería de hojas de cálculo todavía no cargó."});
+    setBusy(true); setMsg(null); const next=[];
+    try {
+      for(const file of files){ const data=await file.arrayBuffer(); const wb=window.XLSX.read(data,{type:"array",cellDates:true}); wb.SheetNames.forEach(name=>{const rows=window.XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:"",raw:true}); if(rows.length)next.push({id:file.name+"::"+name,file:file.name,name,rows,module:vetDetectModule(name,rows)});}); }
+      setSheets(next); if(!next.length)setMsg({error:true,text:"No encontramos filas con encabezados en esos archivos."});
+    } catch(e){setMsg({error:true,text:"No se pudo leer el archivo: "+(e.message||e)});} setBusy(false);
+  }
+  const setModule=(id,module)=>setSheets(s=>s.map(x=>x.id===id?{...x,module}:x));
+  const selected=sheets.filter(s=>s.module!=="omitir");
+  const counts=selected.reduce((a,s)=>(a[s.module]=(a[s.module]||0)+s.rows.length,a),{});
+  async function importar(){
+    if(!selected.length)return setMsg({error:true,text:"Selecciona al menos una hoja para importar."});
+    if(!confirm(`Se integrarán ${selected.reduce((n,s)=>n+s.rows.length,0)} filas en ${selected.length} hoja(s). ¿Continuar?`))return;
+    setBusy(true);setMsg(null);let ok=0,fallos=[];const base=Date.now();
+    for(let si=0;si<selected.length;si++){
+      const sh=selected[si], cfg=VETMAKE_IMPORT_MODULES[sh.module];
+      const rows=sh.rows.map((r,i)=>vetMapImportRow(sh.module,r,i,base+si*100000)).filter(Boolean).filter(r=>Object.values(r).some(v=>v!==""&&v!==0&&v!==false));
+      for(let i=0;i<rows.length;i+=200){const batch=rows.slice(i,i+200);const res=await supaFetch(cfg.table,"POST",batch);if(res?.ok)ok+=batch.length;else fallos.push(`${sh.name}: ${res?.error?.message||"error de validación"}`);}
+    }
+    setBusy(false); if(fallos.length)setMsg({error:true,text:`Se integraron ${ok} filas. Revisa: ${fallos.join(" · ")}`}); else {setMsg({error:false,text:`✅ ${ok} filas integradas. Dashboard, CRM, inventario y reportes se actualizarán.`});localStorage.setItem("vetmake_tutorial_paso","2");if(onImported)onImported();}
+  }
+  const recs=[]; if(counts.ventas&&!counts.gastos)recs.push("Agrega gastos para calcular utilidad real."); if(counts.inventario)recs.push("Revisa stock mínimo y productos sin precio de venta."); if(counts.clientes&&!counts.seguimientos)recs.push("Crea seguimientos para vacunas y clientes inactivos."); if(counts.empleados&&!counts.nomina)recs.push("Completa nómina para medir el costo operativo.");
+  const sheetCards = sheets.map(sh => {
+    const muestra = sh.rows.slice(0,3).map((r,i) => React.createElement("div", {key:i,style:{background:"#f7f9f8",border:"1px solid #e5e7eb",borderRadius:8,padding:8,fontSize:10,lineHeight:1.45}},
+      Object.keys(r).slice(0,6).map(k => React.createElement("div", {key:k,style:{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}, React.createElement("strong",null,k,": "), String(r[k]??"")))
+    ));
+    return React.createElement(Card,{key:sh.id,style:{padding:16}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",flexWrap:"wrap"}},
+        React.createElement("div",null,React.createElement("div",{style:{fontWeight:800,fontSize:14}},"📄 ",sh.file," · ",sh.name),React.createElement("div",{style:{fontSize:11,color:C.grisd,marginTop:3}},sh.rows.length," filas · ",Object.keys(sh.rows[0]||{}).length," columnas")),
+        React.createElement("select",{value:sh.module,onChange:e=>setModule(sh.id,e.target.value),style:{padding:"8px 10px",borderRadius:8,border:"1px solid #dfe5e8",fontWeight:700,color:C.negro}},Object.entries(VETMAKE_IMPORT_MODULES).map(([id,cfg])=>React.createElement("option",{key:id,value:id},cfg.icon+" "+cfg.label)))
+      ),
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:7,marginTop:12}},muestra)
+    );
+  });
+  return React.createElement("div", null,
+    React.createElement(Card,{style:{borderTop:`5px solid ${C.verde}`,marginBottom:18}},React.createElement("h2",{style:{fontFamily:"Georgia,serif",fontSize:24,marginBottom:6}},"📥 Importación inteligente"),React.createElement("p",{style:{color:C.grisd,fontSize:13,lineHeight:1.6,marginBottom:16}},"Sube uno o varios archivos .xlsx, .xls o .csv. El análisis ocurre en tu navegador; verás la clasificación y una muestra antes de guardar."),React.createElement("label",{style:{display:"inline-flex",alignItems:"center",gap:8,background:C.verde,color:"#fff",borderRadius:10,padding:"11px 18px",fontWeight:800,fontSize:13,cursor:"pointer"}},busy?"⏳ Analizando...":"📂 Seleccionar archivos",React.createElement("input",{type:"file",multiple:true,accept:".xlsx,.xls,.csv",onChange:leer,disabled:busy,style:{display:"none"}})),React.createElement("div",{style:{fontSize:11,color:C.grisd,marginTop:10}},"No se modifica nada hasta que pulses “Confirmar e integrar”.")),
+    msg&&React.createElement("div",{style:{background:msg.error?"#fff1f1":C.verdeL,color:msg.error?C.rojo:C.verde,border:`1px solid ${msg.error?"#fecaca":"#b7dec4"}`,borderRadius:10,padding:13,marginBottom:16,fontSize:13,fontWeight:700}},msg.text),
+    sheets.length>0&&React.createElement(React.Fragment,null,
+      React.createElement("div",{style:{display:"grid",gap:12}},sheetCards),
+      recs.length>0&&React.createElement(Card,{style:{marginTop:16,background:"#fffbeb",border:"1px solid #fde68a"}},React.createElement("div",{style:{fontWeight:800,marginBottom:8}},"💡 Recomendaciones del análisis"),recs.map((x,i)=>React.createElement("div",{key:i,style:{fontSize:12,marginTop:5}},"• ",x))),
+      React.createElement("button",{onClick:importar,disabled:busy||!selected.length,style:{marginTop:16,width:"100%",border:"none",borderRadius:10,padding:13,background:busy||!selected.length?"#9ca3af":C.verde,color:"#fff",fontSize:14,fontWeight:800,cursor:busy?"wait":"pointer"}},busy?"⏳ Integrando...":`✅ Confirmar e integrar ${selected.reduce((n,s)=>n+s.rows.length,0)} filas`)
+    )
+  );
+}
+
+function CentroDatosVetMake(props) {
+  return React.createElement("div",null,React.createElement(ImportadorInteligente,{onImported:props.onImported}),React.createElement("div",{style:{height:12}}),React.createElement(ExportarExcel,props));
+}
+
 function ExportarExcel({ ventas, gastos, clientes, pagosNom, empleados, inventario, citas, seguimientos, tarifasGrooming, tarifasVet }) {
   const [exportando, setExportando] = useState(false);
   const [exportado, setExportado] = useState(false);
@@ -8486,7 +8645,9 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
 }
 
 function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, setEmpleados, empleadosLoaded, deleteEmpleado, refetchEmpleados }) {
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState(() => localStorage.getItem("vetmake_tutorial_completado") === "1" ? "dashboard" : "tutorial");
+  const [menuAbierto, setMenuAbierto] = useState(() => localStorage.getItem("vetmake_menu_abierto") !== "0");
+  const toggleMenu = () => setMenuAbierto(prev => { const next=!prev; localStorage.setItem("vetmake_menu_abierto",next?"1":"0"); return next; });
   const [showPendModal, setShowPendModal] = useState(false);
   const [dbReady, setDbReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState("conectando");
@@ -8770,36 +8931,50 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
     disabled: pollingSync,
     style: { background:"rgba(255,255,255,0.15)", border:"1px solid rgba(255,255,255,0.3)", color:"#fff", borderRadius:6, padding:"2px 8px", fontSize:10, cursor:"pointer", fontWeight:700, opacity: pollingSync ? 0.6 : 1 }
   }, pollingSync ? "⏳ Sincronizando..." : "🔄 Sincronizar ahora")
-)), /* @__PURE__ */ React.createElement("style", null, `@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`)), /* @__PURE__ */ React.createElement("div", { style: {
+)), /* @__PURE__ */ React.createElement("style", null, `@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} } @media(max-width:760px){.vetmake-shell{display:block!important}.vetmake-sidebar{position:relative!important;width:100%!important;max-height:none!important}.vetmake-main{width:100%!important}}`)),
+  /* @__PURE__ */ React.createElement("div", { className:"vetmake-shell", style:{display:"flex",alignItems:"stretch",minHeight:"calc(100vh - 108px)"}},
+  /* @__PURE__ */ React.createElement("aside", { className:"vetmake-sidebar", style: {
+    width: menuAbierto ? 248 : 68,
+    flexShrink: 0,
     background: "#fff",
-    borderBottom: "2px solid #eef0f2",
-    display: "flex",
-    gap: 0,
-    overflowX: "auto",
-    padding: "0 24px"
-  } }, TABS.map((t) => {
+    borderRight: "1px solid #dfe5e8",
+    padding: "12px 9px",
+    position: "sticky",
+    top: 0,
+    alignSelf: "flex-start",
+    maxHeight: "100vh",
+    overflowY: "auto",
+    transition: "width .2s ease"
+  } },
+  /* @__PURE__ */ React.createElement("button", { onClick:toggleMenu, title:menuAbierto?"Cerrar menú":"Abrir menú", style:{width:"100%",border:"none",borderRadius:9,padding:"10px 8px",marginBottom:9,background:"#eef5f0",color:C.verde,fontWeight:900,cursor:"pointer",textAlign:menuAbierto?"right":"center",fontSize:16}}, menuAbierto?"◀ Cerrar":"☰"),
+  TABS.map((t) => {
     const pendientes = t.id === "notificaciones"
       ? (todosClientes || []).filter(c => esInscripcionWeb(c) && !notifArchivada(c) && !notifAtendida(c, notifLeidas instanceof Set ? notifLeidas : new Set())).length
       : t.id === "ventas"
       ? (ventas || []).filter(v => (v.formaPago || v.formapago || "") === "Pago pendiente").length
       : 0;
     return /* @__PURE__ */ React.createElement("button", { key: t.id, onClick: () => setTab(t.id), style: {
-      background: "none",
+      width: "100%",
+      background: tab === t.id ? C.verdeL : "transparent",
       border: "none",
+      borderRadius: 9,
       cursor: "pointer",
-      padding: "14px 20px",
-      fontSize: 13,
+      padding: menuAbierto ? "10px 10px" : "10px 6px",
+      marginBottom: 3,
+      fontSize: 12,
       fontWeight: 700,
       color: tab === t.id ? C.verde : C.grisd,
-      borderBottom: tab === t.id ? `3px solid ${C.verde}` : "3px solid transparent",
+      borderLeft: tab === t.id ? `4px solid ${C.verde}` : "4px solid transparent",
       display: "flex",
       alignItems: "center",
-      gap: 6,
+      justifyContent: menuAbierto ? "flex-start" : "center",
+      gap: 8,
       whiteSpace: "nowrap",
-      transition: "color .15s"
+      transition: "all .15s",
+      overflow: "hidden"
     } },
-      /* @__PURE__ */ React.createElement("span", null, t.icon),
-      t.label,
+      /* @__PURE__ */ React.createElement("span", {style:{fontSize:16,minWidth:20,textAlign:"center"}}, t.icon),
+      menuAbierto && t.label,
       pendientes > 0 && /* @__PURE__ */ React.createElement("span", { style: {
         background: "#e53e3e", color: "#fff", borderRadius: "50%",
         fontSize: 10, fontWeight: 800, minWidth: 18, height: 18,
@@ -8807,8 +8982,8 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
         padding: "0 4px", marginLeft: 2
       }}, pendientes)
     );
-  })), /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1200, margin: "0 auto", padding: "28px 24px" } }, tab === "dashboard" && React.createElement(AvisoAntiparasitarios, { seguimientos, clientes: todosClientes, ventas, setTab }), tab === "dashboard" && React.createElement(AvisoAbonosPorCobrar, { ventas, clientes: todosClientes, setTab }), tab === "dashboard" && React.createElement(AvisoLlamadasSofia, { setTab }), tab === "dashboard" && React.createElement(AvisoCitasProximas, { citas, setCitas, clientes: todosClientes }), tab === "dashboard" && React.createElement(AvisoReactivacion, { clientes: todosClientes, ventas, setTab }), tab === "dashboard" && React.createElement(AvisoCambiosFacturas, { session }), tab === "dashboard" && React.createElement(AvisoFechasFuturas, { ventas, setVentas }), tab === "dashboard" && React.createElement(AvisoRespaldo, null), tab === "dashboard" && React.createElement(AvisoClientesNuevos, { clientes: todosClientes, notifLeidas, setTab }), tab === "dashboard" && React.createElement(AvisoCandidatosNuevos, { setTab }), tab === "dashboard" && (ventasLoaded ? /* @__PURE__ */ React.createElement(Dashboard, { totalVentas, totalEgresos, utilidad, totalNomina, totalGastos, ventasMes, comisionesGrm, comisionesVet, comisionesValen, comGrmSistema, comVetSistema, comAyleinSistema, comValenSistema, COM_GRM_EXCEL_MARZO, COM_VET_EXCEL_MARZO, seguimientos, clientes, ventas, inventario: todoInventario, setVentas, setTab, citas, gastos, pagosNom }) : /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "70px 24px", color: "#5a6472" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 32, marginBottom: 12 } }, "⏳"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 700, marginBottom: 6 } }, "Sincronizando con Supabase…"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12 } }, "Los n\xFAmeros ser\xE1n los mismos que en el Google Sheets"))),
-        tab === "agenda" && /* @__PURE__ */ React.createElement(Agenda, { citas, setCitas, deleteCita: deleteCitaRow, clientes: todosClientes, ventas, setVentas, tarifasGrooming, tarifasVet, setTab, refetchCitasAgenda: refetchCitas }), /* @__PURE__ */ React.createElement("div", { key: "t-ventas", style: { display: tab === "ventas" ? "" : "none" } }, /* @__PURE__ */ React.createElement(Ventas, { ventas, setVentas, deleteVenta, inventario, setInventario, clientes: todosClientes, setClientes, citas, setCitas, paquetes, setPaquetes, setTab, setCrmClienteInicial, clienteVentaInicial: crmClienteInicial, clearClienteVentaInicial: clearCrmClienteInicial, tarifasGrooming, tarifasVet, setSeguimientos })), /* @__PURE__ */ React.createElement("div", { key: "t-clientes", style: { display: tab === "clientes" ? "" : "none" } }, /* @__PURE__ */ React.createElement(CRM, { clientes: todosClientes, setClientes, deleteCliente, onVirtualFusion: () => setVirtualFusionVer(v => v+1), ventas, setVentas, clienteInicial: crmClienteInicial, onClearClienteInicial: clearCrmClienteInicial, setTab, setCrmClienteInicial, historias, setHistorias: setHistoriasRaw, deleteHistoria, citas, setCitas })), tab === "seguimientos" && /* @__PURE__ */ React.createElement(Seguimientos, { seguimientos, setSeguimientos, clientes, ventas, pushHistorial, snapSeguimientos: seguimientos }), tab === "inventario" && /* @__PURE__ */ React.createElement(Inventario, { inventario: todoInventario, setInventario, ventas, deleteInv }), tab === "nomina" && /* @__PURE__ */ React.createElement(Nomina, { empleados, setEmpleados, pagosNom, setPagosNom, ventasMes, mesActual }), tab === "gastos" && /* @__PURE__ */ React.createElement(Gastos, { gastos, setGastos }), tab === "facturas" && /* @__PURE__ */ React.createElement(Facturas, { ventas, setVentas, deleteVenta, clientes: todosClientes, citas, setCitas, historias, tarifasGrooming, tarifasVet, inventario: todoInventario }), tab === "importar" && React.createElement(ExportarExcel, { ventas, gastos, clientes: todosClientes, pagosNom, empleados, inventario: todoInventario, citas, seguimientos, tarifasGrooming, tarifasVet }), tab === "reportes" && /* @__PURE__ */ React.createElement(Reportes, { ventas, gastos, pagosNom, empleados }),
+  })), /* @__PURE__ */ React.createElement("main", { className:"vetmake-main", style:{flex:1,minWidth:0}}, /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1200, margin: "0 auto", padding: "28px 24px" } }, tab === "tutorial" && React.createElement(TutorialVetMake,{setTab,tenant}), tab === "dashboard" && React.createElement(AvisoAntiparasitarios, { seguimientos, clientes: todosClientes, ventas, setTab }), tab === "dashboard" && React.createElement(AvisoAbonosPorCobrar, { ventas, clientes: todosClientes, setTab }), tab === "dashboard" && React.createElement(AvisoLlamadasSofia, { setTab }), tab === "dashboard" && React.createElement(AvisoCitasProximas, { citas, setCitas, clientes: todosClientes }), tab === "dashboard" && React.createElement(AvisoReactivacion, { clientes: todosClientes, ventas, setTab }), tab === "dashboard" && React.createElement(AvisoCambiosFacturas, { session }), tab === "dashboard" && React.createElement(AvisoFechasFuturas, { ventas, setVentas }), tab === "dashboard" && React.createElement(AvisoRespaldo, null), tab === "dashboard" && React.createElement(AvisoClientesNuevos, { clientes: todosClientes, notifLeidas, setTab }), tab === "dashboard" && React.createElement(AvisoCandidatosNuevos, { setTab }), tab === "dashboard" && (ventasLoaded ? /* @__PURE__ */ React.createElement(Dashboard, { totalVentas, totalEgresos, utilidad, totalNomina, totalGastos, ventasMes, comisionesGrm, comisionesVet, comisionesValen, comGrmSistema, comVetSistema, comAyleinSistema, comValenSistema, COM_GRM_EXCEL_MARZO, COM_VET_EXCEL_MARZO, seguimientos, clientes, ventas, inventario: todoInventario, setVentas, setTab, citas, gastos, pagosNom }) : /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "70px 24px", color: "#5a6472" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 32, marginBottom: 12 } }, "⏳"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 700, marginBottom: 6 } }, "Sincronizando con Supabase…"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12 } }, "Los n\xFAmeros ser\xE1n los mismos que en el Google Sheets"))),
+        tab === "agenda" && /* @__PURE__ */ React.createElement(Agenda, { citas, setCitas, deleteCita: deleteCitaRow, clientes: todosClientes, ventas, setVentas, tarifasGrooming, tarifasVet, setTab, refetchCitasAgenda: refetchCitas }), /* @__PURE__ */ React.createElement("div", { key: "t-ventas", style: { display: tab === "ventas" ? "" : "none" } }, /* @__PURE__ */ React.createElement(Ventas, { ventas, setVentas, deleteVenta, inventario, setInventario, clientes: todosClientes, setClientes, citas, setCitas, paquetes, setPaquetes, setTab, setCrmClienteInicial, clienteVentaInicial: crmClienteInicial, clearClienteVentaInicial: clearCrmClienteInicial, tarifasGrooming, tarifasVet, setSeguimientos })), /* @__PURE__ */ React.createElement("div", { key: "t-clientes", style: { display: tab === "clientes" ? "" : "none" } }, /* @__PURE__ */ React.createElement(CRM, { clientes: todosClientes, setClientes, deleteCliente, onVirtualFusion: () => setVirtualFusionVer(v => v+1), ventas, setVentas, clienteInicial: crmClienteInicial, onClearClienteInicial: clearCrmClienteInicial, setTab, setCrmClienteInicial, historias, setHistorias: setHistoriasRaw, deleteHistoria, citas, setCitas })), tab === "seguimientos" && /* @__PURE__ */ React.createElement(Seguimientos, { seguimientos, setSeguimientos, clientes, ventas, pushHistorial, snapSeguimientos: seguimientos }), tab === "inventario" && /* @__PURE__ */ React.createElement(Inventario, { inventario: todoInventario, setInventario, ventas, deleteInv }), tab === "nomina" && /* @__PURE__ */ React.createElement(Nomina, { empleados, setEmpleados, pagosNom, setPagosNom, ventasMes, mesActual }), tab === "gastos" && /* @__PURE__ */ React.createElement(Gastos, { gastos, setGastos }), tab === "facturas" && /* @__PURE__ */ React.createElement(Facturas, { ventas, setVentas, deleteVenta, clientes: todosClientes, citas, setCitas, historias, tarifasGrooming, tarifasVet, inventario: todoInventario }), tab === "importar" && React.createElement(CentroDatosVetMake, { ventas, gastos, clientes: todosClientes, pagosNom, empleados, inventario: todoInventario, citas, seguimientos, tarifasGrooming, tarifasVet, onImported: sincronizarAhora }), tab === "reportes" && /* @__PURE__ */ React.createElement(Reportes, { ventas, gastos, pagosNom, empleados }),
     tab === "servicios" && React.createElement(TabServicios, { tarifasGrooming, setTarifasGrooming, tarifasVet, setTarifasVet }),
     tab === "configuracion" && React.createElement(ConfiguracionNegocio, { tenant, onTenantChange, empleados, setEmpleados, deleteEmpleado, refetchEmpleados, onGoServicios: () => setTab("servicios") }),
     tab === "vozia" && React.createElement(VozIA, null),
@@ -8879,7 +9054,7 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
     fontWeight: 700,
     boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
     animation: "fadeIn 0.2s ease"
-  } }, undoMsg), showPendModal ? React.createElement(ModalPagosPendientes, { ventas: ventas, setVentas: setVentas, clientes: todosClientes, onClose: function() { setShowPendModal(false); } }) : null);
+  } }, undoMsg), showPendModal ? React.createElement(ModalPagosPendientes, { ventas: ventas, setVentas: setVentas, clientes: todosClientes, onClose: function() { setShowPendModal(false); } }) : null)));
 }
 // El dashboard solo puede mostrar históricos que pertenezcan al negocio actual.
 // Los datos demo de PetColinas no se cargan en VetMake.
