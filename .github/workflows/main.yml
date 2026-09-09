@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Descargar el repositorio
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
 
       - name: Preparar Node.js
         uses: actions/setup-node@v4
