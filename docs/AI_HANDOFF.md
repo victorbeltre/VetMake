@@ -56,9 +56,18 @@ el historial remoto de Supabase son la fuente de verdad.
   prueba; `authenticated` conserva solo `SELECT` sobre `pc_gastos`.
 - Se restauró `.github/workflows/main.yml` y se añadió
   `scripts/validate.mjs` para comprobar el candidato en cada push o PR.
+- El CI remoto de la rama quedó aprobado en el commit `d20d02c`. El workflow
+  usa `fetch-depth: 2` para revisar únicamente los cambios del candidato y no
+  tratar todo el historial anterior como un commit raíz.
 - Validación local: 2 scripts inline con sintaxis correcta, 39 migraciones con
   versión única, 21 RPC del frontend declaradas en SQL y `git diff --check`
   limpio.
+- Prueba de navegador sobre el archivo exacto de `d20d02c`: login renderizado,
+  validación de campos vacíos, control mostrar/ocultar contraseña, recuperación
+  sin envío y rechazo correcto de un token público inválido.
+- Prueba SQL reversible posterior al push: gasto creado por RPC, reintento
+  idempotente, una sola fila y operación, visibilidad por RLS y DML directo
+  bloqueado. El `ROLLBACK` dejó cero filas y operaciones de prueba.
 
 ## Pendientes conocidos
 
@@ -67,12 +76,17 @@ el historial remoto de Supabase son la fuente de verdad.
   ejecutable heredada de PetColinas y llamadas a `vapi-trigger`,
   `calendar-sync` y `pagadito-cobro`, integraciones que no están versionadas ni
   desplegadas en `vetmake-dev`.
-- Falta confirmar el resultado del CI remoto y hacer pruebas funcionales y de
-  navegador sobre este commit antes de fusionarlo.
+- La prueba sin sesión detectó que el frontend intenta cargar diez tablas antes
+  de autenticar y después anuncia fallbacks locales. No impide mostrar el
+  login, pero bloquea la aprobación para producción hasta retirar ese arranque
+  prematuro y cualquier respaldo operativo sensible.
+- Las vistas autenticadas todavía requieren una cuenta de prueba dedicada para
+  una validación completa por rol; este bloque no utilizó credenciales reales.
 - No debe revocarse todavía el DML de depósitos, fichas clínicas, historias,
   paquetes o seguimientos: sus flujos de interfaz aún no están reconstruidos.
 
 ## Próxima solución, una sola
 
-Probar el candidato exacto de esta rama. Solo después de cerrar los hallazgos
-del test se retoma Nómina como siguiente solución funcional.
+Evitar toda carga de datos antes de tener una sesión válida y eliminar los
+fallbacks operativos sensibles que todavía dependen de `localStorage`. Después
+se repite este mismo smoke test antes de retomar el siguiente módulo.
