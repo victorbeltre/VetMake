@@ -1,43 +1,78 @@
 # Relevo entre Codex y Claude Code
 
-Este archivo es la memoria operativa compartida. El agente que termina o pausa una tarea debe actualizarlo; el siguiente debe leerlo antes de trabajar.
+Este archivo resume el estado comprobable del trabajo activo. El repositorio y
+el historial remoto de Supabase son la fuente de verdad.
 
 ## Estado actual
 
-- Agente que entrega: Codex
-- Rama de referencia: `main`
-- Último commit conocido antes de este protocolo: `22f5b1e`
-- Estado: protocolo permanente de colaboración añadido; no hay una tarea de producto activa en este relevo.
+- Agente activo: Codex.
+- Rama: `codex/production-hardening-rc1`, creada desde `origin/main`
+  (`5b26bad`).
+- El commit vigente del candidato es siempre el `HEAD` de esta rama.
+- Objetivo: endurecimiento de VetMake para producción, una solución completa a
+  la vez.
+- No se fusionó ni desplegó el candidato y no se aplicaron migraciones nuevas.
 
-## Trabajo realizado
+## Recuperación realizada
 
-- Se añadieron instrucciones automáticas para Codex en `AGENTS.md`.
-- Se añadieron instrucciones automáticas para Claude Code en `CLAUDE.md`.
-- Se creó esta memoria común de relevo.
+- El workspace anterior fue retirado por mantenimiento antes de que sus cambios
+  locales se publicaran.
+- Se recuperó desde `supabase_migrations.schema_migrations` el SQL de las 29
+  migraciones que no existen en `origin/main`.
+- También se restauró el contenido aplicado de
+  `20260825030000_logos_negocios.sql` y
+  `20260825040000_inteligencia_vetmake.sql`.
+- El repositorio vuelve a contener 39 archivos de migración. Sus versiones y
+  nombres coinciden exactamente con las 39 entradas actuales de `vetmake-dev`.
+- `git diff --check` queda limpio después de la recuperación.
 
-## Verificación
+## Estado remoto comprobado
 
-- Archivos revisados con `git diff --check`. El commit del protocolo es el commit más reciente que modifica este archivo (`git log -1 -- docs/AI_HANDOFF.md`).
+- `vetmake-dev`: saludable, 39 migraciones.
+- RLS: 21/21 tablas públicas y 13/13 privadas.
+- `pc_depositos`, `pc_fichas_clinicas`, `pc_historias`, `pc_paquetes` y
+  `pc_seguimientos` todavía permiten DML directo para `authenticated`.
+- Gastos, nómina, empleados, clientes, inventario, tarifas, ventas, citas,
+  cobros y facturas conservan sus migraciones de endurecimiento en la base.
 
-## Supabase
+## Frontend reconstruido
 
-- Sin cambios de base de datos, RLS, Storage ni Edge Functions en este relevo.
+- Se reaplicó localmente a `index.html` la limpieza heredada ya revisada y se
+  reconstruyó la capa de sesión, reintento de 401, RPC y estado confirmado por
+  servidor.
+- Ventas, citas, facturas, clientes, inventario, tarifas, nómina, empleados y
+  gastos se enrutan por sus RPC existentes; el Data API genérico rechaza DML
+  directo sobre esas tablas.
+- Inventario ya no hace doble guardado, no actualiza la interfaz antes de la
+  respuesta, bloquea acciones repetidas por producto y no fabrica existencias
+  desde gastos o `localStorage`.
+- Gastos ya espera confirmación del servidor para alta y corrección, anula sin
+  borrado físico, usa UUID temporal, bloquea reenvíos y exige responsable real
+  y motivos de auditoría.
+- Prueba SQL reversible de Inventario aprobada: alta con stock 2, actualización
+  a 0 y retiro (`activo=false`). El `ROLLBACK` dejó cero filas de prueba.
+- Prueba SQL reversible de Gastos aprobada: alta RD$100, reintento idempotente,
+  corrección a RD$125.50 y anulación auditada. El `ROLLBACK` dejó cero filas de
+  prueba; `authenticated` conserva solo `SELECT` sobre `pc_gastos`.
+- Se restauró `.github/workflows/main.yml` y se añadió
+  `scripts/validate.mjs` para comprobar el candidato en cada push o PR.
+- Validación local: 2 scripts inline con sintaxis correcta, 39 migraciones con
+  versión única, 21 RPC del frontend declaradas en SQL y `git diff --check`
+  limpio.
 
-## Próximo agente
+## Pendientes conocidos
 
-1. Ejecutar `git status` y revisar el historial reciente.
-2. Leer `AGENTS.md`, `CLAUDE.md` si aplica, y este archivo.
-3. Atender la siguiente petición del usuario sin rehacer funcionalidades ya publicadas.
+- GitHub Pages continúa desactualizado; esta rama no activa su workflow.
+- El validador identifica todavía 93 referencias a `localStorage`, lógica
+  ejecutable heredada de PetColinas y llamadas a `vapi-trigger`,
+  `calendar-sync` y `pagadito-cobro`, integraciones que no están versionadas ni
+  desplegadas en `vetmake-dev`.
+- Falta confirmar el resultado del CI remoto y hacer pruebas funcionales y de
+  navegador sobre este commit antes de fusionarlo.
+- No debe revocarse todavía el DML de depósitos, fichas clínicas, historias,
+  paquetes o seguimientos: sus flujos de interfaz aún no están reconstruidos.
 
-## Plantilla para el siguiente relevo
+## Próxima solución, una sola
 
-- Agente que entrega:
-- Rama:
-- Commit:
-- Objetivo:
-- Resultado:
-- Archivos principales:
-- Pruebas ejecutadas:
-- Cambios de Supabase:
-- Riesgos o pendientes:
-- Instrucción exacta para continuar:
+Probar el candidato exacto de esta rama. Solo después de cerrar los hallazgos
+del test se retoma Nómina como siguiente solución funcional.
