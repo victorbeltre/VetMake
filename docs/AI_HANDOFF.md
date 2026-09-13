@@ -6,12 +6,26 @@ el historial remoto de Supabase son la fuente de verdad.
 ## Estado actual
 
 - Agente activo: Codex.
-- Rama: `codex/production-hardening-rc1`, creada desde `origin/main`
-  (`5b26bad`).
+- Rama: `codex/p0-auth-localstorage`, creada desde `origin/codex/production-hardening-rc1`
+  (`622e39e`).
 - El commit vigente del candidato es siempre el `HEAD` de esta rama.
 - Objetivo: endurecimiento de VetMake para producción, una solución completa a
   la vez.
 - No se fusionó ni desplegó el candidato y no se aplicaron migraciones nuevas.
+
+## Bloque P0 en curso
+
+- Los hooks `useSupabase` ahora salen sin consultar ni mostrar datos cuando no
+  hay sesión válida; los fallos de carga muestran estado vacío en vez de usar
+  seeds o copias operativas locales.
+- Se eliminó la persistencia local de eliminaciones y el seed local de citas.
+- El sondeo periódico de ventas/clientes solo se monta con sesión autenticada
+  y se desmonta al cerrar sesión.
+- Se retiró la limpieza global que leía ventas, facturas y citas de
+  `localStorage` antes del login.
+- Validación local: 2 scripts inline, 39 migraciones y 21 RPC correctas;
+  `git diff --check` limpio. Persisten 86 referencias históricas a
+  `localStorage` y deben retirarse por bloques antes del GO.
 
 ## Recuperación realizada
 
@@ -87,6 +101,7 @@ el historial remoto de Supabase son la fuente de verdad.
 
 ## Próxima solución, una sola
 
-Evitar toda carga de datos antes de tener una sesión válida y eliminar los
-fallbacks operativos sensibles que todavía dependen de `localStorage`. Después
-se repite este mismo smoke test antes de retomar el siguiente módulo.
+Retirar los respaldos de ventas, facturas, citas, inventario y clientes que aún
+quedan en componentes legacy (manteniendo únicamente preferencias visuales).
+Después se repite el smoke test sin sesión y se hace commit de este bloque
+antes de continuar con depósitos, historias, fichas, paquetes y seguimientos.

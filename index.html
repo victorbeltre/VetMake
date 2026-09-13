@@ -226,7 +226,7 @@ async function enviarASheet(venta) {
 // localStorage tiene ~5 MB y la app guarda copias completas de ventas, clientes,
 // facturas y citas. Antes solo pc_facturas manejaba el desbordamiento; el resto
 // fallaba en silencio al llenarse. Este helper libera espacio y reintenta.
-const LS_DESECHABLES = ["pc_venta_serv", "pc_fecha_alerts", "pc_fecha_dismissed", "pc_ventas_local", "pc_facturas", "pc_ventas", "pc_clientes", "pc_citas_agenda", "pc_seguimientos"];
+const LS_DESECHABLES = [];
 function guardarLocal(clave, valor) {
   const txt = typeof valor === "string" ? valor : JSON.stringify(valor);
   try {
@@ -245,29 +245,6 @@ function guardarLocal(clave, valor) {
     return false;
   }
 }
-// Limpieza puntual: unas ventas de la semilla quedaron con fecha 2026-10-31
-// (era el 2026-01-31, un dedo en el mes). Ya está corregido en el código y en
-// Supabase, pero las copias guardadas en el navegador siguen con la fecha mala
-// y empujaban esas facturas al tope de la lista. Se depuran una sola vez.
-(function limpiarFechasMalasLocales() {
-  const MARCA = "pc_limpieza_2026_10_31";
-  try {
-    if (localStorage.getItem(MARCA)) return;
-    ["pc_ventas", "pc_ventas_local", "pc_facturas", "pc_citas_agenda"].forEach((k) => {
-      const crudo = localStorage.getItem(k);
-      if (!crudo) return;
-      const arr = JSON.parse(crudo);
-      if (!Array.isArray(arr)) return;
-      const limpio = arr.filter((r) => String(r && r.fecha || "") !== "2026-10-31");
-      if (limpio.length !== arr.length) {
-        localStorage.setItem(k, JSON.stringify(limpio));
-        console.log("[Limpieza] " + k + ": " + (arr.length - limpio.length) + " fila(s) con fecha 2026-10-31 eliminadas del caché local");
-      }
-    });
-    localStorage.setItem(MARCA, "1");
-  } catch (e) { console.warn("[Limpieza]", e); }
-})();
-
 // Marca de compilación. La escribe .github/scripts/sellar-version.js y debe
 // coincidir con version.txt (el validador lo comprueba).
 const PC_BUILD = "2026-08-22 17:27Z";
@@ -928,10 +905,9 @@ function useSupabase(table, seed = []) {
   // La semilla contiene datos históricos de PetColinas. En VetMake no se
   // muestran ni se suben automáticamente: cada clínica empieza aislada.
   if (!VETMAKE_USE_LOCAL_SEEDS) seed = [];
-  const deletedKey = "pc_deleted_" + table;
-  const deletedIdsInit = new Set(
-    JSON.parse(localStorage.getItem(deletedKey) || "[]")
-  );
+  // No persistimos eliminaciones en el navegador: podrían ocultar filas
+  // confirmadas en otro dispositivo o sobrevivir a un cambio de sesión.
+  const deletedIdsInit = new Set();
   const [data, setData] = useState(
     () => seed.filter((r) => !deletedIdsInit.has(String(r.id)))
   );
@@ -941,11 +917,17 @@ function useSupabase(table, seed = []) {
   const refetch = useCallback(() => setRefetchTrigger(n => n + 1), []);
   const seedIds = useRef(new Set(seed.map((r) => String(r.id))));
   const deletedIds = useRef(deletedIdsInit);
-  const savDeleted = (set) => {
-    localStorage.setItem(deletedKey, JSON.stringify([...set]));
-  };
+  const savDeleted = () => {};
   useEffect(() => {
     (async () => {
+      const session = getStoredVetMakeSession();
+      if (!session?.access_token) {
+        // Los hooks se montan antes del login por las reglas de React. No
+        // consultamos Supabase ni mostramos semillas sin una sesión válida.
+        setData([]);
+        setLoaded(true);
+        return;
+      }
       try {
         const rows = await supaFetchTodo(table, "?order=id.asc");
         console.log(`[Supabase] ${table} \u2192 ${Array.isArray(rows) ? rows.length : "ERR"} filas`, rows?.error || "");
@@ -1126,14 +1108,14 @@ function useSupabase(table, seed = []) {
           await uploadSeed(table, seed);
           setData(seed.filter((r) => !deletedIds.current.has(String(r.id))));
         } else {
-          // GET falló (red/sesión/RLS): usar seed local SIN subir nada a la nube
-          console.warn(`[Supabase] ${table}: error de carga — usando datos locales sin re-subir seed`);
+          // GET falló: no inventar datos ni usar una copia local operativa.
+          console.warn(`[Supabase] ${table}: error de carga — se muestra vacío hasta recuperar la sesión`);
           if (typeof window.__notifSyncError === "function") window.__notifSyncError(table + " no se pudo cargar");
-          setData(seed.filter((r) => !deletedIds.current.has(String(r.id))));
+          setData([]);
         }
       } catch (e) {
         console.error("Supabase load error:", e);
-        setData(seed.filter((r) => !deletedIds.current.has(String(r.id))));
+        setData([]);
       }
       setLoaded(true);
     })();
@@ -5623,7 +5605,7 @@ function PetColinas() {
   const [ventasVet, setVentasVet]   = useSupabase("pc_ventas", []);
   const setVentas = setVentasVet;
   const [clientesVet, setClientesVet] = useSupabase("pc_clientes", []);
-  const [citasPortal, setCitasPortal, , , , refetchCitasPortal] = useSupabase("pc_citas", (() => { try { return JSON.parse(localStorage.getItem("pc_citas_agenda") || "[]"); } catch { return []; } })());
+  const [citasPortal, setCitasPortal, , , , refetchCitasPortal] = useSupabase("pc_citas", []);
   const [historiasVet, setHistoriasVet] = useSupabase("pc_historias", []);
   const [fichasVet, setFichasVet] = useSupabase("pc_fichas_clinicas", []);
   const [pagosNomVet, setPagosNomVet] = React.useState([]);
@@ -5666,6 +5648,7 @@ function PetColinas() {
   // se bajaban pc_ventas y pc_clientes enteras cada 30 s aunque nadie estuviera
   // mirando, y al volver a la pestana entraban todas de golpe.
   React.useEffect(() => {
+    if (!session?.access_token) return undefined;
     const poll = setInterval(async () => {
       if (document.hidden) return;
       refetchCitasPortal();
@@ -5690,7 +5673,7 @@ function PetColinas() {
       } catch(e) {}
     }, 60000);
     return () => clearInterval(poll);
-  }, []);
+  }, [session?.access_token, refetchCitasPortal]);
 
   useEffect(() => {
     let vivo = true;
