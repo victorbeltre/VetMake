@@ -2395,26 +2395,6 @@ function tocaRecordar(v, hoyStr) {
   if (!f || !esPagoPendiente(v)) return false;
   return f <= (hoyStr || hoy());
 }
-function useLS(key, def) {
-  const [val, setVal] = useState(() => {
-    try {
-      const s = localStorage.getItem(key);
-      if (!s) return def;
-      const parsed = JSON.parse(s);
-      if (Array.isArray(parsed) && parsed.length === 0 && Array.isArray(def) && def.length > 0) return def;
-      return parsed;
-    } catch {
-      return def;
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem(key, JSON.stringify(val));
-    } catch {
-    }
-  }, [key, val]);
-  return [val, setVal];
-}
 function useSupaTarifas() {
   const SEED_ALL = useMemo(() => VETMAKE_USE_LOCAL_SEEDS ? [
     ...TARIFAS_GROOMING.map(t => ({ ...t, area: "grooming" })),
@@ -2436,45 +2416,6 @@ function useSupaTarifas() {
   const tarifasGrooming = useMemo(() => data.filter(t => t.area === "grooming"), [data]);
   const tarifasVet = useMemo(() => data.filter(t => t.area === "vet"), [data]);
   return [tarifasGrooming, setTarifasGrooming, tarifasVet, setTarifasVet];
-}
-function useVentasConSeed(seed) {
-  const seedIds = useMemo(() => new Set(seed.map((v) => String(v.id))), []);
-  const [val, setVal] = useState(() => {
-    try {
-      const s = localStorage.getItem("pc_ventas");
-      const stored = s ? JSON.parse(s) : [];
-      // Si localStorage tiene más ventas que el seed, usar localStorage completo
-      // (sincronizado desde Supabase con comisiones corregidas)
-      if (stored.length > seed.length) {
-        // Combinar: localStorage base + manuales nuevas no en localStorage
-        const storedIds = new Set(stored.map(v => String(v.id)));
-        const extras = seed.filter(v => !storedIds.has(String(v.id)));
-        return [...stored, ...extras];
-      }
-      // Si localStorage tiene pocas/ninguna venta, usar seed + manuales del LS
-      const manuales = stored.filter((v) => !seedIds.has(String(v.id)));
-      // Para ventas del seed que están en LS con datos actualizados, usar LS
-      const lsMap = new Map(stored.map(v => [String(v.id), v]));
-      const seedConUpdates = seed.map(sv => {
-        const lsV = lsMap.get(String(sv.id));
-        // Si el LS tiene comisión corregida (>0 cuando seed=0), usar LS
-        if (lsV && lsV.comision > 0 && sv.comision === 0) return lsV;
-        return sv;
-      });
-      return [...seedConUpdates, ...manuales];
-    } catch { return seed; }
-  });
-  const setValYGuardar = useCallback((updater) => {
-    setVal((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      try {
-        // Guardar todo en localStorage (no solo manuales)
-        guardarLocal("pc_ventas", next);
-      } catch(e) { console.warn("localStorage ventas:", e); }
-      return next;
-    });
-  }, [seedIds]);
-  return [val, setValYGuardar];
 }
 const Badge = ({ color, children }) => /* @__PURE__ */ React.createElement("span", { style: {
   background: color + "22",
@@ -3716,13 +3657,7 @@ function PanelFondo({ saldo, mascota, total, dejar, setDejar, usar, setUsar }) {
 }
 
 function Facturas({ ventas, setVentas, deleteVenta, clientes, citas = [], setCitas, historias = [], tarifasGrooming, tarifasVet, inventario }) {
-  const [facturas, setFacturas] = useSupabase("pc_facturas", (() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem("pc_facturas") || "null");
-      if (Array.isArray(stored) && stored.length > 0) return stored;
-    } catch {}
-    return FACTURAS_SEED;
-  })());
+  const [facturas, setFacturas] = useSupabase("pc_facturas", []);
   const [vista, setVista] = useState("lista");
   const [facturaActual, setFacturaActual] = useState(null);
   const [editandoId, setEditandoId] = useState(null);
@@ -5631,16 +5566,10 @@ function PetColinas() {
       window.__setVentasGlobal = setVentasVet;
       return;
     }
-    try {
-      const inv = JSON.parse(localStorage.getItem("pc_inventario") || "[]");
-      if (inv.length > 0) { window.__inventarioGlobal = inv; setInvGlobal(inv); }
-      else window.__inventarioGlobal = [];
-      const pagos = JSON.parse(localStorage.getItem("pc_pagos") || "[]");
-      window.__pagosNomGlobal = pagos; setPagosNomVet(pagos);
-    } catch(e) {
-      window.__inventarioGlobal = [];
-      window.__pagosNomGlobal = [];
-    }
+    // El modo de respaldos locales está desactivado en VetMake SaaS. Este
+    // bloque queda defensivo para instalaciones antiguas, sin leer registros.
+    window.__inventarioGlobal = [];
+    window.__pagosNomGlobal = [];
     // Exponer setVentas para portales
     window.__setVentasGlobal = setVentasVet;
   }, []);
@@ -6252,18 +6181,6 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
       return next;
     });
   };
-  useEffect(() => {
-    try {
-      const f = localStorage.getItem("pc_facturas");
-      if (f) {
-        const arr = JSON.parse(f);
-        if (Array.isArray(arr) && arr.length === 0) {
-          localStorage.removeItem("pc_facturas");
-        }
-      }
-    } catch {
-    }
-  }, []);
   const [tarifasGrooming, setTarifasGrooming, tarifasVet, setTarifasVet] = useSupaTarifas();
   const [ventas, setVentas, ventasLoaded, , deleteVenta, refetchVentas] = useSupabase("pc_ventas", VENTAS_SEED);
   const [clientes, setClientes, clientesLoaded, , deleteCliente, refetchClientes] = useSupabase("pc_clientes", CLIENTES_SEED);
@@ -6271,7 +6188,7 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
   const [inventario, setInventario, invLoaded, , deleteInv, refetchInventario] = useSupabase("pc_inventario", INVENTARIO_SEED);
   const [vetKnowledge, , vetKnowledgeLoaded] = useSupabase("vet_knowledge_products", []);
   const [vetLearning, , , , , refetchVetLearning] = useSupabase("vet_learning_aliases", []);
-  const [citas, setCitas, , , deleteCitaRow, refetchCitas] = useSupabase("pc_citas", (() => { try { return JSON.parse(localStorage.getItem("pc_citas_agenda") || "[]"); } catch { return []; } })());
+  const [citas, setCitas, , , deleteCitaRow, refetchCitas] = useSupabase("pc_citas", []);
   const [lastSync, setLastSync] = useState(null);
   const [pollingSync, setPollingSync] = useState(false);
   const [virtualFusionVer, setVirtualFusionVer] = useState(0);
