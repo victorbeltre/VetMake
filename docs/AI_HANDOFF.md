@@ -24,7 +24,7 @@ el historial remoto de Supabase son la fuente de verdad.
 - Se retiró la limpieza global que leía ventas, facturas y citas de
   `localStorage` antes del login.
 - Validación local: 2 scripts inline, 39 migraciones y 21 RPC correctas;
-  `git diff --check` limpio. Persisten 86 referencias históricas a
+  `git diff --check` limpio. Persisten 70 referencias históricas a
   `localStorage` y deben retirarse por bloques antes del GO.
 
 ## Recuperación realizada
@@ -103,5 +103,7 @@ el historial remoto de Supabase son la fuente de verdad.
 
 Retirar los respaldos de ventas, facturas, citas, inventario y clientes que aún
 quedan en componentes legacy (manteniendo únicamente preferencias visuales).
-Después se repite el smoke test sin sesión y se hace commit de este bloque
-antes de continuar con depósitos, historias, fichas, paquetes y seguimientos.
+El segundo bloque ya eliminó los lectores de ventas, facturas, citas,
+inventario y pagos; queda retirar los escritores y los estados derivados que
+siguen en componentes legacy. Después se repite el smoke test sin sesión antes
+de continuar con depósitos, historias, fichas, paquetes y seguimientos.
