@@ -24,8 +24,11 @@ el historial remoto de Supabase son la fuente de verdad.
 - Se retiró la limpieza global que leía ventas, facturas y citas de
   `localStorage` antes del login.
 - Validación local: 2 scripts inline, 39 migraciones y 21 RPC correctas;
-  `git diff --check` limpio. Persisten 70 referencias históricas a
+  `git diff --check` limpio. Persisten 65 referencias históricas a
   `localStorage` y deben retirarse por bloques antes del GO.
+- Prueba Playwright local del commit actual: login renderizado, validación de
+  campos vacíos, favicon sin 404 y formulario público con token inválido
+  muestra el error esperado; no hubo excepciones JavaScript de la aplicación.
 
 ## Recuperación realizada
 

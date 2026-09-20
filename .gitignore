@@ -1,0 +1,2 @@
+# Artefactos temporales de Playwright CLI durante pruebas locales.
+.playwright-cli/

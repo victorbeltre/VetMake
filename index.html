@@ -6,6 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
+  <link rel="icon" href="data:,">
   <title>🐾 VetMake — Gestión veterinaria</title>
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
@@ -462,19 +463,6 @@ async function registrarCobroSeguro(setVentas, venta, monto, forma, fechaRecorda
   }
   return confirmada;
 }
-// Migración de época de datos: tras el re-import canónico desde el Google Sheets
-// (jun 2026, ids 70001+), los respaldos locales de ventas son obsoletos y re-subirían
-// filas viejas borradas. Se limpian UNA vez por dispositivo.
-const DATA_EPOCH = 2;
-try {
-  if (parseInt(localStorage.getItem("pc_data_epoch") || "1", 10) < DATA_EPOCH) {
-    localStorage.removeItem("pc_ventas_local");
-    localStorage.removeItem("pc_fecha_overrides");
-    localStorage.removeItem("pc_fecha_alerts");
-    localStorage.setItem("pc_data_epoch", String(DATA_EPOCH));
-    console.log("[DataEpoch] respaldos locales de ventas limpiados (epoch " + DATA_EPOCH + ")");
-  }
-} catch {}
 // ─── SINCRONIZACION EN VIVO ─────────────────────────────────────────────────
 // Antes cada dispositivo cargaba los datos al abrir y se quedaba con esa foto:
 // si la doctora registraba una venta en caja, en la tablet de Victor no
