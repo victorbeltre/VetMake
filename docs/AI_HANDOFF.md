@@ -31,6 +31,18 @@ el historial remoto de Supabase son la fuente de verdad.
   comprobado** mostró `¡Paso completado!` y `Siguiente paso →`; al pulsarlo se
   abrió Inventario con `Paso 5 de 19`.
 
+## Continuidad después de refrescar
+
+- La pestaña inicial de `PetColinasApp` ahora recupera
+  `vetmake_tutorial_paso` y abre directamente la función asociada al paso
+  guardado, en lugar de reiniciar siempre en el tutorial.
+- La barra de navegación muestra `Aquí te quedaste. Continúa desde este paso.`
+  cuando detecta que la sesión se reanudó desde un paso anterior; el progreso
+  completado sigue en `vetmake_tutorial_completados`.
+- Prueba Playwright local: después de quedar en Inventario y recargar la página,
+  VetMake abrió Inventario automáticamente y mostró `Paso 5 de 19` con el aviso
+  de reanudación.
+
 ## Cambio actual — duplicados al importar catálogo
 
 - `index.html` ahora conserva las filas repetidas durante la revisión de

@@ -5066,6 +5066,8 @@ function TutorialPasoNavegacion({ tab, setTab }) {
   const terminado = completados.includes(actual);
   const siguienteIndex = actual < TUTORIAL_PASOS_GUIA.length - 1 ? actual + 1 : null;
   const siguiente = siguienteIndex == null ? null : TUTORIAL_PASOS_GUIA[siguienteIndex];
+  const pasoGuardado = Number(localStorage.getItem("vetmake_tutorial_paso"));
+  const reanudado = Number.isInteger(pasoGuardado) && pasoGuardado === actual && pasoGuardado > 0;
 
   function guardar(next) {
     const ordenado = [...new Set(next)].sort((a,b) => a-b);
@@ -5100,7 +5102,7 @@ function TutorialPasoNavegacion({ tab, setTab }) {
       React.createElement("div", null,
         React.createElement("div", {style:{fontSize:11,fontWeight:800,color:terminado?"#1d4ed8":C.verde,textTransform:"uppercase",letterSpacing:.3}}, `Paso ${actual + 1} de ${TUTORIAL_PASOS_GUIA.length}`),
         React.createElement("div", {style:{fontWeight:800,fontSize:14,color:C.negro}}, terminado ? "¡Paso completado!" : paso.titulo),
-        React.createElement("div", {style:{fontSize:11,color:C.grisd,marginTop:2}}, terminado ? (siguiente ? `Continúa con: ${siguiente.titulo}` : "El tutorial está completo") : "Completa esta función y avanza cuando estés listo.")
+        React.createElement("div", {style:{fontSize:11,color:C.grisd,marginTop:2}}, terminado ? (siguiente ? `Continúa con: ${siguiente.titulo}` : "El tutorial está completo") : (reanudado ? "Aquí te quedaste. Continúa desde este paso." : "Completa esta función y avanza cuando estés listo."))
       )
     ),
     React.createElement("div", {style:{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}},
@@ -6221,7 +6223,11 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
 }
 
 function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, setEmpleados, empleadosLoaded, deleteEmpleado, refetchEmpleados }) {
-  const [tab, setTab] = useState(() => localStorage.getItem("vetmake_tutorial_completado") === "1" ? "dashboard" : "tutorial");
+  const [tab, setTab] = useState(() => {
+    if (localStorage.getItem("vetmake_tutorial_completado") === "1") return "dashboard";
+    const savedStep = Number(localStorage.getItem("vetmake_tutorial_paso"));
+    return Number.isInteger(savedStep) && TUTORIAL_PASOS_GUIA[savedStep]?.tab ? TUTORIAL_PASOS_GUIA[savedStep].tab : "tutorial";
+  });
   const [menuAbierto, setMenuAbierto] = useState(() => localStorage.getItem("vetmake_menu_abierto") !== "0");
   const toggleMenu = () => setMenuAbierto(prev => { const next=!prev; localStorage.setItem("vetmake_menu_abierto",next?"1":"0"); return next; });
   const [showPendModal, setShowPendModal] = useState(false);
