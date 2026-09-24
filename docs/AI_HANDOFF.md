@@ -6,12 +6,27 @@ el historial remoto de Supabase son la fuente de verdad.
 ## Estado actual
 
 - Agente activo: Codex.
-- Rama: `codex/p0-auth-localstorage`, creada desde `origin/codex/production-hardening-rc1`
-  (`622e39e`).
+- Rama: `codex/import-catalog-duplicates`, creada desde
+  `codex/p0-auth-localstorage` en `ffb698a`.
 - El commit vigente del candidato es siempre el `HEAD` de esta rama.
 - Objetivo: endurecimiento de VetMake para producción, una solución completa a
   la vez.
 - No se fusionó ni desplegó el candidato y no se aplicaron migraciones nuevas.
+
+## Cambio actual — duplicados al importar catálogo
+
+- `index.html` ahora conserva las filas repetidas durante la revisión de
+  importación, en vez de ocultarlas al agruparlas.
+- Detecta nombres equivalentes ignorando mayúsculas, acentos, signos y espacios,
+  además de coincidencias exactas con servicios o inventario ya existentes.
+- Los duplicados aparecen en un bloque separado con las acciones **Conservar**,
+  **Quitar** y **Quitar todos los duplicados**; también hay filtros para ver
+  todos, solo los listos o solo los duplicados.
+- Una fila marcada como duplicada no puede integrarse hasta que el usuario la
+  quite o la conserve explícitamente. La protección final vuelve a verificarlo
+  antes de guardar y evita repetir productos ya existentes en inventario.
+- La lectura de CSV usa UTF-8 explícito para conservar nombres con acentos.
+- No hubo cambios de esquema ni migraciones de Supabase.
 
 ## Bloque P0 en curso
 
@@ -85,6 +100,9 @@ el historial remoto de Supabase son la fuente de verdad.
 - Prueba SQL reversible posterior al push: gasto creado por RPC, reintento
   idempotente, una sola fila y operación, visibilidad por RLS y DML directo
   bloqueado. El `ROLLBACK` dejó cero filas y operaciones de prueba.
+- Prueba Playwright local de esta rama: CSV con cinco filas produjo dos
+  duplicados separados; el botón **Quitar** actualizó el contador y el botón
+  **Conservar** reactivó la fila. Los nombres con `ñ` se conservaron.
 
 ## Pendientes conocidos
 

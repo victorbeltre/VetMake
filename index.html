@@ -15830,6 +15830,7 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
   const [importados, setImportados] = React.useState([]);
   const [importMsg, setImportMsg] = React.useState("");
   const [mostrandoSugerencias, setMostrandoSugerencias] = React.useState(false);
+  const [filtroImportacion, setFiltroImportacion] = React.useState("todos");
 
   const tarifas = seccion === "grooming" ? tarifasGrooming : tarifasVet;
   const setTarifas = seccion === "grooming" ? setTarifasGrooming : setTarifasVet;
@@ -15897,6 +15898,47 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
   function limpiarNombreImportado(nombre) {
     return String(nombre || "").replace(/\(\s*pendiente de pago\s*\)/gi, "").replace(/\(\s*-?100%\s*\)/g, "").replace(/^\s*\d+%\s*(off|descuento)\s*/i, "").replace(/\s{2,}/g, " ").replace(/[|;,:\-–—]+\s*$/, "").trim();
   }
+  function claveDuplicadoImportado(nombre, categoria) {
+    var tipo = categoria === "farmacia" || categoria === "tienda" ? "producto" : String(categoria || "servicio");
+    return tipo + "|" + vetSmartNormalize(nombre).replace(/\s/g, "");
+  }
+  function nombreCortoExistente(nombre) {
+    return vetSmartNormalize(nombre).replace(/\s/g, "");
+  }
+  function marcarDuplicadosImportados(filas) {
+    var existentes = new Map();
+    (tarifasGrooming || []).forEach(function(t) { existentes.set(nombreCortoExistente(t.nombre), "el catálogo de grooming"); });
+    (tarifasVet || []).forEach(function(t) { existentes.set(nombreCortoExistente(t.nombre), "el catálogo veterinario"); });
+    (inventario || []).forEach(function(p) { existentes.set(nombreCortoExistente(p.nombre), "el inventario"); });
+    var grupos = new Map();
+    (filas || []).forEach(function(s, index) {
+      var clave = claveDuplicadoImportado(s.nombre, s.categoria);
+      if (!clave || clave.endsWith("|")) return;
+      if (!grupos.has(clave)) grupos.set(clave, []);
+      grupos.get(clave).push({ fila: s, index: index });
+    });
+    var principales = new Map();
+    grupos.forEach(function(items, clave) {
+      items.sort(function(a, b) {
+        var precioA = numeroImportado(a.fila.precio) > 0 ? 1 : 0;
+        var precioB = numeroImportado(b.fila.precio) > 0 ? 1 : 0;
+        if (precioA !== precioB) return precioB - precioA;
+        return (Number(b.fila.confianza) || 0) - (Number(a.fila.confianza) || 0);
+      });
+      principales.set(clave, items[0].index);
+    });
+    return (filas || []).map(function(s, index) {
+      var clave = claveDuplicadoImportado(s.nombre, s.categoria);
+      var duplicadoDe = existentes.get(nombreCortoExistente(s.nombre)) || "";
+      var principal = principales.get(clave);
+      if (!duplicadoDe && principal !== undefined && principal !== index) {
+        var original = filas[principal];
+        duplicadoDe = "otra fila importada: " + (original.nombre || "sin nombre");
+      }
+      var duplicado = Boolean(duplicadoDe);
+      return { ...s, duplicado: duplicado, duplicadoDe: duplicadoDe, incluir: duplicado ? false : s.incluir, importId: s.importId || ("imp-" + Date.now() + "-" + index) };
+    });
+  }
   function filaServicio(row) {
     var normal = {};
     Object.keys(row || {}).forEach(function(k) { normal[String(k).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")] = row[k]; });
@@ -15941,7 +15983,7 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
       for (const file of archivos) {
         var ext = file.name.split(".").pop().toLowerCase();
         if (["xlsx", "xls", "csv"].includes(ext)) {
-          var wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+          var wb = XLSX.read(await file.arrayBuffer(), { type: "array", codepage: ext === "csv" ? 65001 : undefined });
           wb.SheetNames.forEach(function(hoja) { XLSX.utils.sheet_to_json(wb.Sheets[hoja], { defval: "" }).forEach(function(r) { var s = filaServicio(r); if (s.nombre) encontrados.push(...expandirElemento(s)); }); });
         } else if (ext === "docx") {
           if (!window.mammoth) throw new Error("No se pudo cargar el lector de Word.");
@@ -15956,42 +15998,79 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
       }
       var grupos = new Map();
       encontrados.filter(function(s){ return s.incluir && s.nombre; }).forEach(function(s) {
-        var clave = s.nombre.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim() + "|" + s.categoria;
+        var clave = claveDuplicadoImportado(s.nombre, s.categoria);
         if (!grupos.has(clave)) grupos.set(clave, []);
         grupos.get(clave).push(s);
       });
-      var unicos = Array.from(grupos.values()).map(function(arr) {
-        var base = { ...arr[0] };
+      var filasImportadas = [];
+      grupos.forEach(function(arr) {
         var precios = arr.map(function(x){return numeroImportado(x.precio);}).filter(function(n){return n > 0;}).sort(function(a,b){return a-b;});
         var comisiones = arr.map(function(x){return numeroImportado(x.comision);}).filter(function(n){return n > 0;}).sort(function(a,b){return a-b;});
-        if (precios.length) base.precio = precios[Math.floor((precios.length - 1) / 2)];
-        if (comisiones.length) base.comision = comisiones[Math.floor((comisiones.length - 1) / 2)];
-        base.referencia = (precios.length > 1 ? "Precio típico inferido de " + precios.length + " ventas" : precios.length === 1 ? "Precio detectado en una venta" : "No encontramos un monto confiable") + (base.confianza ? " · Clasificación " + base.confianza + "%" : "");
-        base.incluir = numeroImportado(base.precio) > 0;
-        return base;
-      }).sort(function(a,b){ return (a.categoria > b.categoria ? 1 : -1) || a.nombre.localeCompare(b.nombre); });
-      setImportados(unicos);
-      var conPrecio = unicos.filter(function(x){return numeroImportado(x.precio)>0;}).length;
-      var productos = unicos.filter(function(x){return x.categoria === "farmacia" || x.categoria === "tienda";}).length;
-      setImportMsg(unicos.length ? "Detectamos " + unicos.length + " elementos: " + conPrecio + " con precio y " + productos + " productos de tienda/farmacia. Los precios repetidos se calcularon usando el valor típico de las ventas." : "No pudimos detectar servicios o productos. Usa columnas como Servicio/Producto, Precio/Total, Comisión y Categoría.");
+        var principal = arr.slice().sort(function(a,b) {
+          var precioA = numeroImportado(a.precio) > 0 ? 1 : 0;
+          var precioB = numeroImportado(b.precio) > 0 ? 1 : 0;
+          return precioB - precioA || (Number(b.confianza) || 0) - (Number(a.confianza) || 0);
+        })[0];
+        arr.forEach(function(item) {
+          var fila = { ...item };
+          if (item === principal && precios.length) fila.precio = precios[Math.floor((precios.length - 1) / 2)];
+          if (item === principal && comisiones.length) fila.comision = comisiones[Math.floor((comisiones.length - 1) / 2)];
+          fila.referencia = (item === principal && precios.length > 1 ? "Precio típico inferido de " + precios.length + " ventas" : numeroImportado(fila.precio) > 0 ? "Precio detectado en una venta" : "No encontramos un monto confiable") + (fila.confianza ? " · Clasificación " + fila.confianza + "%" : "");
+          fila.incluir = numeroImportado(fila.precio) > 0;
+          filasImportadas.push(fila);
+        });
+      });
+      var marcados = marcarDuplicadosImportados(filasImportadas).sort(function(a,b){ return (a.categoria > b.categoria ? 1 : -1) || a.nombre.localeCompare(b.nombre); });
+      setImportados(marcados); setFiltroImportacion("todos");
+      var conPrecio = marcados.filter(function(x){return numeroImportado(x.precio)>0;}).length;
+      var productos = marcados.filter(function(x){return x.categoria === "farmacia" || x.categoria === "tienda";}).length;
+      var duplicados = marcados.filter(function(x){return x.duplicado;}).length;
+      setImportMsg(marcados.length ? "Detectamos " + marcados.length + " elementos: " + conPrecio + " con precio y " + productos + " productos de tienda/farmacia. Separamos " + duplicados + " posibles duplicados para que los revises antes de integrar." : "No pudimos detectar servicios o productos. Usa columnas como Servicio/Producto, Precio/Total, Comisión y Categoría.");
     } catch (err) { setImportMsg("No se pudo analizar el archivo: " + (err.message || err)); }
     finally { setAnalizando(false); }
   }
-  function actualizarImportado(i, campo, valor) { setImportados(function(prev) { return prev.map(function(s, idx) { if (idx !== i) return s; var next = { ...s, [campo]: valor }; if (campo === "categoria") next.invCategoria = categoriaInventario(next.nombre, valor); return next; }); }); }
+  function actualizarImportado(i, campo, valor) {
+    var actualizados = importados.map(function(s, idx) {
+      if (idx !== i) return s;
+      var next = { ...s, [campo]: valor };
+      if (campo === "categoria") next.invCategoria = categoriaInventario(next.nombre, valor);
+      return next;
+    });
+    var siguiente = marcarDuplicadosImportados(actualizados);
+    setImportados(siguiente); actualizarMensajeDuplicados(siguiente);
+  }
+  function actualizarMensajeDuplicados(filas) {
+    var cantidad = (filas || []).filter(function(s) { return s.duplicado; }).length;
+    setImportMsg(function(msg) { return String(msg || "").replace(/Separamos \d+ posibles duplicados/, "Separamos " + cantidad + " posibles duplicados"); });
+  }
+  function quitarDuplicadoImportado(importId) {
+    var siguiente = importados.filter(function(s) { return s.importId !== importId; });
+    setImportados(siguiente); actualizarMensajeDuplicados(siguiente);
+  }
+  function conservarDuplicadoImportado(importId) {
+    var siguiente = importados.map(function(s) { return s.importId === importId ? { ...s, duplicado: false, duplicadoDe: "", incluir: numeroImportado(s.precio) > 0 } : s; });
+    setImportados(siguiente); actualizarMensajeDuplicados(siguiente);
+  }
+  function quitarTodosLosDuplicados() {
+    var cantidad = importados.filter(function(s) { return s.duplicado; }).length;
+    if (!cantidad || !confirm("¿Quitar " + cantidad + " posibles duplicados de esta revisión?\n\nNo se borra nada del sistema: solo se retiran de esta importación antes de integrar.")) return;
+    var siguiente = importados.filter(function(s) { return !s.duplicado; });
+    setImportados(siguiente); actualizarMensajeDuplicados(siguiente);
+  }
   function confirmarImportacion() {
-    var elegidos = importados.filter(function(s) { return s.incluir && s.nombre.trim() && numeroImportado(s.precio) > 0; });
+    var elegidos = importados.filter(function(s) { return s.incluir && !s.duplicado && s.nombre.trim() && numeroImportado(s.precio) > 0; });
     if (!elegidos.length) return alert("Selecciona al menos un servicio o producto con nombre y precio mayor que cero.");
     var ahora = Date.now();
     setTarifasGrooming(function(prev) { return prev.concat(elegidos.filter(function(s){return s.categoria === "grooming";}).map(function(s,i){return {id:"gi"+(ahora+i),nombre:s.nombre.trim(),precio:numeroImportado(s.precio),comision:numeroImportado(s.comision)};})); });
     setTarifasVet(function(prev) { return prev.concat(elegidos.filter(function(s){return s.categoria === "veterinaria";}).map(function(s,i){return {id:"vi"+(ahora+i),nombre:s.nombre.trim(),precio:numeroImportado(s.precio),comision:numeroImportado(s.comision)};})); });
     var productos = elegidos.filter(function(s){return s.categoria === "farmacia" || s.categoria === "tienda";});
     if (productos.length && setInventario) setInventario(function(prev) {
-      var existentes = new Set((prev || []).map(function(p){return String(p.nombre || "").trim().toLowerCase();}));
-      var nuevos = productos.filter(function(s){return !existentes.has(s.nombre.trim().toLowerCase());}).map(function(s,i){return { id:ahora+5000+i, nombre:s.nombre.trim(), categoria:s.invCategoria || categoriaInventario(s.nombre,s.categoria), stock:0, stockMin:0, costo:0, pventa:numeroImportado(s.precio), stockInicial:0, fechaEntrada:hoy(), notas:"Detectado al importar catálogo; confirma existencias y costo." };});
+      var existentes = new Set((prev || []).map(function(p){return nombreCortoExistente(p.nombre);}));
+      var nuevos = productos.filter(function(s){return !existentes.has(nombreCortoExistente(s.nombre));}).map(function(s,i){return { id:ahora+5000+i, nombre:s.nombre.trim(), categoria:s.invCategoria || categoriaInventario(s.nombre,s.categoria), stock:0, stockMin:0, costo:0, pventa:numeroImportado(s.precio), stockInicial:0, fechaEntrada:hoy(), notas:"Detectado al importar catálogo; confirma existencias y costo." };});
       return (prev || []).concat(nuevos);
     });
     var serviciosN = elegidos.length - productos.length;
-    setImportMsg("Se integraron " + serviciosN + " servicios y " + productos.length + " productos al inventario correctamente."); setImportados([]); setMostrandoSugerencias(false);
+    setImportMsg("Se integraron " + serviciosN + " servicios y " + productos.length + " productos al inventario correctamente. Los duplicados no se integraron."); setImportados([]); setFiltroImportacion("todos"); setMostrandoSugerencias(false);
   }
   const catalogoSugerido = [
     {categoria:"grooming",grupo:"Baños por tamaño",nombre:"Baño — perro mini (1–10 lb)",referencia:"Tarifa base por tamaño"},
@@ -16031,6 +16110,7 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
   function abrirSugerencias() {
     setMostrandoSugerencias(true);
     setImportados(catalogoSugerido.map(function(s){ return {...s,precio:"",comision:"",incluir:false}; }));
+    setFiltroImportacion("todos");
     setImportMsg("Selecciona los servicios apropiados para tu negocio y coloca tus propios precios y comisiones. Los rangos de peso son una plantilla editable.");
   }
 
@@ -16041,6 +16121,15 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
 
   const thStyle = { padding: "10px 14px", textAlign: "left", color: C.grisd, fontWeight: 600, borderBottom: "2px solid #e0e4e8", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap" };
   const tdStyle = { padding: "10px 14px", borderBottom: "1px solid #f4f5f6", fontSize: 13, verticalAlign: "middle" };
+  const duplicadosImportacion = importados.filter(function(s) { return s.duplicado; });
+  const filasImportacion = filtroImportacion === "duplicados"
+    ? duplicadosImportacion
+    : filtroImportacion === "listos"
+      ? importados.filter(function(s) { return !s.duplicado; })
+      : importados;
+  const botonFiltroImportacion = function(id, texto, cantidad) {
+    return React.createElement("button", { onClick: function() { setFiltroImportacion(id); }, style: { border: "1px solid " + (filtroImportacion === id ? C.azul : "#cbd5e1"), borderRadius: 999, padding: "6px 11px", background: filtroImportacion === id ? "#dbeafe" : "#fff", color: filtroImportacion === id ? C.azul : C.grisd, fontWeight: 750, cursor: "pointer", fontSize: 11.5 } }, texto + " (" + cantidad + ")");
+  };
 
   return React.createElement("div", null,
     // Header
@@ -16060,19 +16149,42 @@ function TabServicios({ tarifasGrooming, setTarifasGrooming, tarifasVet, setTari
     (importMsg || importados.length > 0) && React.createElement("div", { style: { background: "#eef6ff", border: "1.5px solid #93c5fd", borderRadius: 12, padding: 16, marginBottom: 18 } },
       React.createElement("div", { style: { fontWeight: 800, color: C.azul, marginBottom: 6 } }, "🔎 Revisión de la importación"),
       React.createElement("div", { style: { fontSize: 12, color: C.grisd, marginBottom: importados.length ? 12 : 0 } }, importMsg, " Nada se guarda hasta que confirmes."),
+      duplicadosImportacion.length > 0 && React.createElement("div", { style: { background: "#fff7ed", border: "1px solid #fdba74", borderRadius: 10, padding: "11px 13px", marginBottom: 12 } },
+        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" } },
+          React.createElement("div", null,
+            React.createElement("div", { style: { fontWeight: 850, color: "#9a3412" } }, "⚠️ " + duplicadosImportacion.length + " posibles duplicados separados"),
+            React.createElement("div", { style: { fontSize: 12, color: "#9a3412", marginTop: 3, lineHeight: 1.45 } }, "VetMake detectó nombres repetidos en el archivo o elementos que ya existen en tu catálogo/inventario. No se integrarán hasta que decidas qué hacer.")),
+          React.createElement("button", { onClick: quitarTodosLosDuplicados, style: { border: 0, borderRadius: 8, padding: "7px 11px", background: "#dc2626", color: "#fff", fontWeight: 800, cursor: "pointer", fontSize: 11.5 } }, "🗑️ Quitar todos los duplicados")
+        ),
+        React.createElement("div", { style: { display: "grid", gap: 6, marginTop: 10 } }, duplicadosImportacion.slice(0, 80).map(function(s) {
+          return React.createElement("div", { key: s.importId, style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", padding: "7px 9px", background: "#fff", borderRadius: 7, border: "1px solid #fed7aa" } },
+            React.createElement("div", { style: { minWidth: 220, flex: 1 } }, React.createElement("strong", { style: { fontSize: 12.5 } }, s.nombre), React.createElement("span", { style: { display: "block", color: "#9a3412", fontSize: 11 } }, "Coincide con " + (s.duplicadoDe || "otra fila"))),
+            React.createElement("div", { style: { display: "flex", gap: 6 } },
+              React.createElement("button", { onClick: function() { conservarDuplicadoImportado(s.importId); }, style: { border: 0, borderRadius: 6, padding: "5px 9px", background: "#dcfce7", color: "#166534", fontWeight: 750, cursor: "pointer", fontSize: 11 } }, "Conservar"),
+              React.createElement("button", { onClick: function() { quitarDuplicadoImportado(s.importId); }, style: { border: 0, borderRadius: 6, padding: "5px 9px", background: "#fee2e2", color: "#b91c1c", fontWeight: 750, cursor: "pointer", fontSize: 11 } }, "Quitar")
+            )
+          );
+        }), duplicadosImportacion.length > 80 && React.createElement("div", { style: { fontSize: 11, color: "#9a3412" } }, "Se muestran los primeros 80 duplicados; usa el filtro para revisarlos en la tabla."))
+      ),
+      importados.length > 0 && React.createElement("div", { style: { display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center", marginBottom: 10 } },
+        React.createElement("span", { style: { fontSize: 11.5, color: C.grisd, fontWeight: 700 } }, "Mostrar:"),
+        botonFiltroImportacion("todos", "Todos", importados.length),
+        botonFiltroImportacion("listos", "Sin duplicados", importados.length - duplicadosImportacion.length),
+        botonFiltroImportacion("duplicados", "Solo duplicados", duplicadosImportacion.length)
+      ),
       importados.length > 0 && React.createElement("div", { style: { overflowX: "auto" } }, React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", background: "#fff" } },
         React.createElement("thead", null, React.createElement("tr", null, ["Usar", "Elemento detectado", "Tipo", "Precio (RD$)", "Comisión", "Cómo se calculó"].map(function(h){return React.createElement("th", { key:h, style:thStyle }, h);}))),
-        React.createElement("tbody", null, importados.map(function(s,i){ return React.createElement("tr", {key:i},
-          React.createElement("td", {style:tdStyle}, React.createElement("input", {type:"checkbox",checked:s.incluir,onChange:function(e){actualizarImportado(i,"incluir",e.target.checked);}})),
+        React.createElement("tbody", null, filasImportacion.map(function(s){ var i = importados.indexOf(s); return React.createElement("tr", {key:s.importId || i, style:{background:s.duplicado ? "#fff7ed" : "#fff"}},
+          React.createElement("td", {style:tdStyle}, React.createElement("input", {type:"checkbox",checked:s.incluir,disabled:s.duplicado,onChange:function(e){actualizarImportado(i,"incluir",e.target.checked);}})),
           React.createElement("td", {style:tdStyle}, React.createElement("input", {value:s.nombre,onChange:function(e){actualizarImportado(i,"nombre",e.target.value);},style:{width:"100%",padding:7,border:"1px solid #cbd5e1",borderRadius:6}})),
           React.createElement("td", {style:tdStyle}, React.createElement("select", {value:s.categoria,onChange:function(e){actualizarImportado(i,"categoria",e.target.value);},style:{padding:7,border:"1px solid #cbd5e1",borderRadius:6}}, React.createElement("option",{value:"grooming"},"Servicio · Grooming"),React.createElement("option",{value:"veterinaria"},"Servicio · Veterinaria"),React.createElement("option",{value:"farmacia"},"Producto · Farmacia"),React.createElement("option",{value:"tienda"},"Producto · Tienda"))),
           React.createElement("td", {style:tdStyle}, React.createElement("input", {type:"number",value:s.precio,onChange:function(e){actualizarImportado(i,"precio",e.target.value);},style:{width:110,padding:7,border:"1px solid #cbd5e1",borderRadius:6}})),
           React.createElement("td", {style:tdStyle}, React.createElement("input", {type:"number",value:s.comision,onChange:function(e){actualizarImportado(i,"comision",e.target.value);},style:{width:100,padding:7,border:"1px solid #cbd5e1",borderRadius:6}})),
-          React.createElement("td", {style:{...tdStyle,fontSize:11,color:C.grisd,minWidth:160}}, s.referencia || "Revisar antes de guardar")
+          React.createElement("td", {style:{...tdStyle,fontSize:11,color:s.duplicado ? "#9a3412" : C.grisd,minWidth:160}}, (s.duplicado ? "⚠️ Duplicado · " + s.duplicadoDe + " · " : "") + (s.referencia || "Revisar antes de guardar"))
         );}))
       )),
       mostrandoSugerencias && React.createElement("div", {style:{fontSize:11,lineHeight:1.5,color:C.grisd,marginTop:10}}, "Base orientativa: servicios publicados por clínicas y pet shops dominicanos. VetMake no fija precios de mercado; cada negocio debe calcularlos según costos, zona, tiempo, pelaje, conducta, insumos y personal capacitado."),
-      importados.length > 0 && React.createElement("div", {style:{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}, React.createElement("button",{onClick:function(){setImportados([]);setImportMsg("");setMostrandoSugerencias(false);},style:{border:"none",borderRadius:7,padding:"9px 14px",cursor:"pointer"}},"Cancelar"),React.createElement("button",{onClick:confirmarImportacion,style:{background:C.verde,color:"#fff",border:"none",borderRadius:7,padding:"9px 16px",fontWeight:800,cursor:"pointer"}},"✓ Confirmar e integrar"))
+      importados.length > 0 && React.createElement("div", {style:{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}, React.createElement("button",{onClick:function(){setImportados([]);setImportMsg("");setFiltroImportacion("todos");setMostrandoSugerencias(false);},style:{border:"none",borderRadius:7,padding:"9px 14px",cursor:"pointer"}},"Cancelar"),React.createElement("button",{onClick:confirmarImportacion,style:{background:C.verde,color:"#fff",border:"none",borderRadius:7,padding:"9px 16px",fontWeight:800,cursor:"pointer"}},"✓ Confirmar e integrar"))
     ),
 
     // Selector de sección
