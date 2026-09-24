@@ -34,6 +34,8 @@
     input, select, textarea, button { font-family: inherit; }
     @keyframes pendienteBlink { 0%,100%{background:#fff1f1} 50%{background:#ffe4e4} }
     .fila-pendiente { animation: pendienteBlink 1.8s ease-in-out infinite; }
+    @keyframes vetmakeTutorialGlow { 0%,100%{box-shadow:0 0 0 0 rgba(37,99,235,.16),0 8px 24px rgba(37,99,235,.10)} 50%{box-shadow:0 0 0 7px rgba(37,99,235,.08),0 12px 30px rgba(37,99,235,.22)} }
+    .vetmake-tutorial-next-glow { animation: vetmakeTutorialGlow 1.8s ease-in-out infinite; }
   </style>
 </head>
 <body>
@@ -5019,6 +5021,95 @@ function vetMapImportRow(module, row, idx, stamp) {
   return null;
 }
 
+const TUTORIAL_PASOS_GUIA = Object.freeze([
+  {icon:"🏥",titulo:"Identidad y datos legales",tab:"configuracion"},
+  {icon:"👥",titulo:"Equipo, cargos y accesos",tab:"configuracion"},
+  {icon:"📥",titulo:"Importar los datos existentes",tab:"importar"},
+  {icon:"⚙️",titulo:"Catálogo de servicios",tab:"servicios"},
+  {icon:"📦",titulo:"Inventario inicial",tab:"inventario"},
+  {icon:"🚚",titulo:"Proveedores y costos",tab:"inventario"},
+  {icon:"🐾",titulo:"Clientes y mascotas",tab:"clientes"},
+  {icon:"📅",titulo:"Agenda y disponibilidad",tab:"agenda"},
+  {icon:"💰",titulo:"Venta de prueba",tab:"ventas"},
+  {icon:"💵",titulo:"Cobros y saldos pendientes",tab:"cobros"},
+  {icon:"📄",titulo:"Facturación",tab:"facturas"},
+  {icon:"🔔",titulo:"Seguimientos automáticos",tab:"seguimientos"},
+  {icon:"💬",titulo:"Mensajes al cliente",tab:"seguimientos"},
+  {icon:"💸",titulo:"Gastos y cuentas del negocio",tab:"gastos"},
+  {icon:"👨‍💼",titulo:"Nómina y comisiones",tab:"nomina"},
+  {icon:"🧾",titulo:"Cierre de caja",tab:"caja"},
+  {icon:"🔔",titulo:"Alertas y notificaciones",tab:"notificaciones"},
+  {icon:"📊",titulo:"Reportes y control gerencial",tab:"reportes"},
+  {icon:"🚀",titulo:"Simulación de apertura",tab:"dashboard"}
+]);
+
+const TUTORIAL_GRUPOS_POR_TAB = Object.freeze({
+  configuracion:[0,1], importar:[2], servicios:[3], inventario:[4,5], clientes:[6],
+  agenda:[7], ventas:[8], cobros:[9], facturas:[10], seguimientos:[11,12], gastos:[13],
+  nomina:[14], caja:[15], notificaciones:[16], reportes:[17], dashboard:[18]
+});
+
+function leerProgresoTutorial() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("vetmake_tutorial_completados") || "[]");
+    return Array.isArray(raw) ? raw.filter(i => Number.isInteger(i) && i >= 0 && i < TUTORIAL_PASOS_GUIA.length) : [];
+  } catch (_) { return []; }
+}
+
+function TutorialPasoNavegacion({ tab, setTab }) {
+  const grupo = TUTORIAL_GRUPOS_POR_TAB[tab] || [];
+  const [completados, setCompletados] = useState(leerProgresoTutorial);
+  if (!grupo.length) return null;
+
+  const actual = grupo.find(i => !completados.includes(i)) ?? grupo[grupo.length - 1];
+  const paso = TUTORIAL_PASOS_GUIA[actual];
+  const terminado = completados.includes(actual);
+  const siguienteIndex = actual < TUTORIAL_PASOS_GUIA.length - 1 ? actual + 1 : null;
+  const siguiente = siguienteIndex == null ? null : TUTORIAL_PASOS_GUIA[siguienteIndex];
+
+  function guardar(next) {
+    const ordenado = [...new Set(next)].sort((a,b) => a-b);
+    setCompletados(ordenado);
+    localStorage.setItem("vetmake_tutorial_completados", JSON.stringify(ordenado));
+    return ordenado;
+  }
+  function marcarPaso() {
+    if (terminado) {
+      guardar(completados.filter(i => i !== actual));
+      return;
+    }
+    guardar([...completados, actual]);
+  }
+  function siguientePaso() {
+    guardar([...completados, actual]);
+    if (siguienteIndex == null) {
+      localStorage.setItem("vetmake_tutorial_completado", "1");
+      setTab("dashboard");
+      return;
+    }
+    localStorage.setItem("vetmake_tutorial_paso", String(siguienteIndex));
+    setTab(siguiente.tab);
+  }
+
+  return React.createElement("div", {
+    className: terminado ? "vetmake-tutorial-next-glow" : "",
+    style: { display:"flex", alignItems:"center", justifyContent:"space-between", gap:14, flexWrap:"wrap", marginBottom:18, padding:"14px 16px", borderRadius:14, border:`1px solid ${terminado ? "#93c5fd" : "#cfe2d5"}`, background: terminado ? "linear-gradient(105deg,#eff6ff,#ffffff 58%,#eefdf4)" : "linear-gradient(105deg,#f7fbf8,#ffffff)", transition:"box-shadow .2s" }
+  },
+    React.createElement("div", {style:{display:"flex",alignItems:"center",gap:11,minWidth:220}},
+      React.createElement("div", {style:{fontSize:25}}, terminado ? "✨" : paso.icon),
+      React.createElement("div", null,
+        React.createElement("div", {style:{fontSize:11,fontWeight:800,color:terminado?"#1d4ed8":C.verde,textTransform:"uppercase",letterSpacing:.3}}, `Paso ${actual + 1} de ${TUTORIAL_PASOS_GUIA.length}`),
+        React.createElement("div", {style:{fontWeight:800,fontSize:14,color:C.negro}}, terminado ? "¡Paso completado!" : paso.titulo),
+        React.createElement("div", {style:{fontSize:11,color:C.grisd,marginTop:2}}, terminado ? (siguiente ? `Continúa con: ${siguiente.titulo}` : "El tutorial está completo") : "Completa esta función y avanza cuando estés listo.")
+      )
+    ),
+    React.createElement("div", {style:{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}},
+      React.createElement(Btn, {small:true, outline:true, onClick:marcarPaso}, terminado ? "↩ Marcar pendiente" : "✅ Paso comprobado"),
+      React.createElement(Btn, {small:true, color:terminado ? C.azul : C.grisd, onClick:siguientePaso}, siguiente ? "Siguiente paso →" : "🚀 Finalizar tutorial")
+    )
+  );
+}
+
 function TutorialVetMake({ setTab, tenant }) {
   const [paso, setPaso] = useState(() => Number(localStorage.getItem("vetmake_tutorial_paso") || 0));
   const [completados, setCompletados] = useState(() => { try { return JSON.parse(localStorage.getItem("vetmake_tutorial_completados") || "[]"); } catch (_) { return []; } });
@@ -6357,6 +6448,7 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
     style: { background:"rgba(255,255,255,0.15)", border:"1px solid rgba(255,255,255,0.3)", color:"#fff", borderRadius:6, padding:"2px 8px", fontSize:10, cursor:"pointer", fontWeight:700, opacity: pollingSync ? 0.6 : 1 }
   }, pollingSync ? "⏳ Sincronizando..." : "🔄 Sincronizar ahora")
 )), /* @__PURE__ */ React.createElement("style", null, `@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} } @media(max-width:760px){.vetmake-shell{display:block!important}.vetmake-sidebar{position:relative!important;width:100%!important;max-height:none!important}.vetmake-main{width:100%!important}}`)),
+  tab !== "tutorial" && React.createElement(TutorialPasoNavegacion,{tab,setTab}),
   /* @__PURE__ */ React.createElement("div", { className:"vetmake-shell", style:{display:"flex",alignItems:"stretch",minHeight:"calc(100vh - 108px)"}},
   /* @__PURE__ */ React.createElement("aside", { className:"vetmake-sidebar", style: {
     width: menuAbierto ? 248 : 68,

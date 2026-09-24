@@ -13,6 +13,24 @@ el historial remoto de Supabase son la fuente de verdad.
   la vez.
 - No se fusionó ni desplegó el candidato y no se aplicaron migraciones nuevas.
 
+## Cambio actual — navegación guiada del tutorial
+
+- `index.html` añade una barra reutilizable de avance sobre cada función incluida
+  en los 19 pasos del tutorial, con el número de paso, el nombre de la tarea y
+  los botones **Paso comprobado** y **Siguiente paso**.
+- El botón **Siguiente paso** conserva el paso actual, guarda el avance en
+  `vetmake_tutorial_completados` y abre automáticamente la siguiente función;
+  también funciona para pasos consecutivos que comparten pestaña, como
+  configuración, inventario y seguimientos.
+- Al comprobar un paso aparece una tarjeta con brillo animado y el texto de la
+  próxima tarea para llamar la atención del usuario sobre el siguiente botón.
+- El estado permanece en el navegador y se sincroniza con la navegación interna
+  existente del tutorial. No hubo cambios de esquema ni migraciones de
+  Supabase.
+- Prueba Playwright local: en Servicios apareció `Paso 4 de 19`; **Paso
+  comprobado** mostró `¡Paso completado!` y `Siguiente paso →`; al pulsarlo se
+  abrió Inventario con `Paso 5 de 19`.
+
 ## Cambio actual — duplicados al importar catálogo
 
 - `index.html` ahora conserva las filas repetidas durante la revisión de
