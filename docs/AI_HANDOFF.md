@@ -11,7 +11,11 @@ el historial remoto de Supabase son la fuente de verdad.
 - El commit vigente del candidato es siempre el `HEAD` de esta rama.
 - Objetivo: endurecimiento de VetMake para producción, una solución completa a
   la vez.
+- PR borrador #1 abierto hacia `main`: https://github.com/victorbeltre/VetMake/pull/1.
 - No se fusionó ni desplegó el candidato y no se aplicaron migraciones nuevas.
+- En la revisión del 2026-10-11, Supabase reportó `vetmake-dev` como `INACTIVE`;
+  reactivar el proyecto y repetir las pruebas contra el backend antes de
+  cualquier piloto.
 
 ## Cambio actual — navegación guiada del tutorial
 
@@ -69,7 +73,7 @@ el historial remoto de Supabase son la fuente de verdad.
 - Se retiró la limpieza global que leía ventas, facturas y citas de
   `localStorage` antes del login.
 - Validación local: 2 scripts inline, 39 migraciones y 21 RPC correctas;
-  `git diff --check` limpio. Persisten 65 referencias históricas a
+  `git diff --check` limpio. Persisten 71 referencias a
   `localStorage` y deben retirarse por bloques antes del GO.
 - Prueba Playwright local del commit actual: login renderizado, validación de
   campos vacíos, favicon sin 404 y formulario público con token inválido
@@ -90,7 +94,9 @@ el historial remoto de Supabase son la fuente de verdad.
 
 ## Estado remoto comprobado
 
-- `vetmake-dev`: saludable, 39 migraciones.
+- `vetmake-dev`: actualmente reportado `INACTIVE` por Supabase; el estado
+  anterior `saludable` ya no debe usarse para autorizar un piloto. La consulta
+  de migraciones expiró por timeout; no se verificaron en vivo en esta revisión.
 - RLS: 21/21 tablas públicas y 13/13 privadas.
 - `pc_depositos`, `pc_fichas_clinicas`, `pc_historias`, `pc_paquetes` y
   `pc_seguimientos` todavía permiten DML directo para `authenticated`.
@@ -137,7 +143,7 @@ el historial remoto de Supabase son la fuente de verdad.
 ## Pendientes conocidos
 
 - GitHub Pages continúa desactualizado; esta rama no activa su workflow.
-- El validador identifica todavía 93 referencias a `localStorage`, lógica
+- El validador identifica todavía 71 referencias a `localStorage`, lógica
   ejecutable heredada de PetColinas y llamadas a `vapi-trigger`,
   `calendar-sync` y `pagadito-cobro`, integraciones que no están versionadas ni
   desplegadas en `vetmake-dev`.
@@ -158,3 +164,17 @@ El segundo bloque ya eliminó los lectores de ventas, facturas, citas,
 inventario y pagos; queda retirar los escritores y los estados derivados que
 siguen en componentes legacy. Después se repite el smoke test sin sesión antes
 de continuar con depósitos, historias, fichas, paquetes y seguimientos.
+
+## Revisión para piloto — 2026-10-11
+
+- La rama candidata está 10 commits delante de `origin/main`; la validación CI
+  del commit `e392078` aprobó. Al crear el PR se inició un nuevo workflow, que
+  estaba `in_progress` en la última consulta.
+- Se creó el PR #1 en modo borrador para revisar el candidato; no se fusionó ni
+  se publicó en Pages.
+- Supabase devolvió estado `INACTIVE` para `vetmake-dev`. Los advisors de
+  seguridad y rendimiento devolvieron cero findings, pero esto no sustituye
+  pruebas del backend activo. La lista de migraciones falló por timeout.
+- Próximo paso: reactivar `vetmake-dev` desde el panel de Supabase; luego
+  verificar login, RLS con dos negocios y los flujos completos de operación.
+  Mantener el PR en borrador y Pages sin cambios hasta completar esa prueba.
