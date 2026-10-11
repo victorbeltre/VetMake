@@ -13,9 +13,10 @@ el historial remoto de Supabase son la fuente de verdad.
   la vez.
 - PR borrador #1 abierto hacia `main`: https://github.com/victorbeltre/VetMake/pull/1.
 - No se fusionó ni desplegó el candidato y no se aplicaron migraciones nuevas.
-- En la revisión del 2026-10-11, Supabase reportó `vetmake-dev` como `INACTIVE`;
-  reactivar el proyecto y repetir las pruebas contra el backend antes de
-  cualquier piloto.
+- En la revisión del 2026-10-11, Supabase reportó `vetmake-dev` como `INACTIVE`.
+  El intento de restaurarlo fue rechazado porque la organización gratuita ya
+  tiene dos proyectos activos; se necesita pausar uno de esos proyectos o subir
+  el plan antes de reintentar.
 
 ## Cambio actual — navegación guiada del tutorial
 
@@ -97,6 +98,11 @@ el historial remoto de Supabase son la fuente de verdad.
 - `vetmake-dev`: actualmente reportado `INACTIVE` por Supabase; el estado
   anterior `saludable` ya no debe usarse para autorizar un piloto. La consulta
   de migraciones expiró por timeout; no se verificaron en vivo en esta revisión.
+- La organización `petcolinasrd@gmail.com's Org` está en plan `free`. Supabase
+  rechazó la reactivación indicando que alcanzó el límite de dos proyectos
+  activos gratuitos. Los proyectos activos detectados son `PetColinas`
+  (`ulrzzddovkioxeaarnjk`) y `anestesioquest` (`llagtkbxykroluaibdle`). No se
+  pausó ninguno ni se cambió el plan.
 - RLS: 21/21 tablas públicas y 13/13 privadas.
 - `pc_depositos`, `pc_fichas_clinicas`, `pc_historias`, `pc_paquetes` y
   `pc_seguimientos` todavía permiten DML directo para `authenticated`.
@@ -175,6 +181,7 @@ de continuar con depósitos, historias, fichas, paquetes y seguimientos.
 - Supabase devolvió estado `INACTIVE` para `vetmake-dev`. Los advisors de
   seguridad y rendimiento devolvieron cero findings, pero esto no sustituye
   pruebas del backend activo. La lista de migraciones falló por timeout.
-- Próximo paso: reactivar `vetmake-dev` desde el panel de Supabase; luego
-  verificar login, RLS con dos negocios y los flujos completos de operación.
+- Próximo paso: el propietario debe elegir entre pausar uno de los dos proyectos
+  activos o subir la organización a Pro; después se puede restaurar `vetmake-dev`
+  y verificar login, RLS con dos negocios y los flujos completos de operación.
   Mantener el PR en borrador y Pages sin cambios hasta completar esa prueba.
