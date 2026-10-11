@@ -14,7 +14,6 @@ create table if not exists public.vet_knowledge_products (
   metadata jsonb not null default '{}',
   updated_at timestamptz not null default now()
 );
-
 alter table public.vet_knowledge_products enable row level security;
 drop policy if exists "conocimiento veterinario lectura autenticada" on public.vet_knowledge_products;
 create policy "conocimiento veterinario lectura autenticada" on public.vet_knowledge_products
@@ -40,17 +39,70 @@ drop policy if exists "aprendizaje por negocio leer" on public.vet_learning_alia
 drop policy if exists "aprendizaje por negocio insertar" on public.vet_learning_aliases;
 drop policy if exists "aprendizaje por negocio actualizar" on public.vet_learning_aliases;
 drop policy if exists "aprendizaje por negocio eliminar" on public.vet_learning_aliases;
-create policy "aprendizaje por negocio leer" on public.vet_learning_aliases for select to authenticated using (negocio_id = public.mi_negocio());
-create policy "aprendizaje por negocio insertar" on public.vet_learning_aliases for insert to authenticated with check (negocio_id = public.mi_negocio() and confirmed_by = (select auth.uid()));
-create policy "aprendizaje por negocio actualizar" on public.vet_learning_aliases for update to authenticated using (negocio_id = public.mi_negocio()) with check (negocio_id = public.mi_negocio());
-create policy "aprendizaje por negocio eliminar" on public.vet_learning_aliases for delete to authenticated using (negocio_id = public.mi_negocio());
+drop policy if exists aprendizaje_admin_lee on public.vet_learning_aliases;
+drop policy if exists aprendizaje_admin_inserta on public.vet_learning_aliases;
+drop policy if exists aprendizaje_admin_actualiza on public.vet_learning_aliases;
+drop policy if exists aprendizaje_admin_borra on public.vet_learning_aliases;
+
+-- Esta migración precede a roles_rls_auditoria en instalaciones nuevas, pero
+-- también debe poder reconciliar un proyecto ya endurecido. Cuando existe el
+-- helper de roles se conserva exactamente la autorización final; antes de eso
+-- se comprueba el rol admin directamente en la membresía del mismo negocio.
+do $policies$
+declare
+  admin_check text;
+begin
+  if to_regprocedure('public.tiene_rol(text[])') is not null then
+    admin_check := '(select public.tiene_rol(array[''admin'']::text[]))';
+  else
+    admin_check := 'exists (
+      select 1 from public.usuarios_negocio u
+      where u.usuario_id = (select auth.uid())
+        and u.negocio_id = (select public.mi_negocio())
+        and u.rol = ''admin''
+    )';
+  end if;
+
+  execute format(
+    'create policy aprendizaje_admin_lee
+       on public.vet_learning_aliases for select to authenticated
+       using (negocio_id = (select public.mi_negocio()) and %s)',
+    admin_check
+  );
+  execute format(
+    'create policy aprendizaje_admin_inserta
+       on public.vet_learning_aliases for insert to authenticated
+       with check (
+         negocio_id = (select public.mi_negocio())
+         and confirmed_by = (select auth.uid())
+         and %s
+       )',
+    admin_check
+  );
+  execute format(
+    'create policy aprendizaje_admin_actualiza
+       on public.vet_learning_aliases for update to authenticated
+       using (negocio_id = (select public.mi_negocio()) and %1$s)
+       with check (negocio_id = (select public.mi_negocio()) and %1$s)',
+    admin_check
+  );
+  execute format(
+    'create policy aprendizaje_admin_borra
+       on public.vet_learning_aliases for delete to authenticated
+       using (negocio_id = (select public.mi_negocio()) and %s)',
+    admin_check
+  );
+end
+$policies$;
+
 grant select, insert, update, delete on public.vet_learning_aliases to authenticated;
 grant usage, select on sequence public.vet_learning_aliases_id_seq to authenticated;
 
 create index if not exists vet_knowledge_kind_idx on public.vet_knowledge_products(kind);
-create index if not exists vet_learning_negocio_idx on public.vet_learning_aliases(negocio_id, normalized_input);
+-- La restricción UNIQUE ya aporta el mismo índice compuesto.
+drop index if exists public.vet_learning_negocio_idx;
 
-insert into public.vet_knowledge_products
+insert into public.vet_knowledge_products as knowledge
 (canonical_name,kind,inventory_category,active_ingredient,therapeutic_class,species,aliases,keywords,requires_vet_review,cold_chain,lot_tracking)
 values
 ('NexGard','farmacia','farmaco','afoxolaner','antiparasitario externo',array['perro'],array['nex gard','nexgar','nexgard chew'],array['pulga','garrapata','tableta masticable'],true,false,true),
@@ -84,7 +136,37 @@ values
 ('Hemograma','servicio_veterinario',null,null,'diagnóstico de laboratorio',array['perro','gato','otro'],array['cbc','conteo sanguineo'],array['laboratorio','sangre'],true,false,false),
 ('Profilaxis dental','servicio_veterinario',null,null,'procedimiento dental',array['perro','gato'],array['limpieza dental veterinaria'],array['dental','profilaxis'],true,false,false)
 on conflict (canonical_name) do update set
-  aliases=excluded.aliases, keywords=excluded.keywords, active_ingredient=excluded.active_ingredient,
-  therapeutic_class=excluded.therapeutic_class, species=excluded.species,
-  requires_vet_review=excluded.requires_vet_review, cold_chain=excluded.cold_chain,
-  lot_tracking=excluded.lot_tracking, updated_at=now();
+  kind=excluded.kind,
+  inventory_category=excluded.inventory_category,
+  aliases=excluded.aliases,
+  keywords=excluded.keywords,
+  active_ingredient=excluded.active_ingredient,
+  therapeutic_class=excluded.therapeutic_class,
+  species=excluded.species,
+  requires_vet_review=excluded.requires_vet_review,
+  cold_chain=excluded.cold_chain,
+  lot_tracking=excluded.lot_tracking,
+  updated_at=now()
+where (
+  knowledge.kind,
+  knowledge.inventory_category,
+  knowledge.aliases,
+  knowledge.keywords,
+  knowledge.active_ingredient,
+  knowledge.therapeutic_class,
+  knowledge.species,
+  knowledge.requires_vet_review,
+  knowledge.cold_chain,
+  knowledge.lot_tracking
+) is distinct from (
+  excluded.kind,
+  excluded.inventory_category,
+  excluded.aliases,
+  excluded.keywords,
+  excluded.active_ingredient,
+  excluded.therapeutic_class,
+  excluded.species,
+  excluded.requires_vet_review,
+  excluded.cold_chain,
+  excluded.lot_tracking
+);
