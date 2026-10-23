@@ -69,7 +69,7 @@ const VETMAKE_MULTI_TENANT_TABLES = new Set([
   "pc_gastos", "pc_citas", "pc_seguimientos", "pc_pagos", "pc_tarifas",
   "pc_historias", "pc_fichas_clinicas", "pc_depositos", "pc_auditoria", "pc_paquetes", "vet_learning_aliases",
   "pc_lab_resultados", "pc_ncf_secuencias",
-  "pc_caja_libro", "pc_caja_dia", "pc_caja_movimientos", "pc_cuentas", "pc_traslados", "pc_cuenta_saldos"
+  "pc_caja_libro", "pc_caja_dia", "pc_caja_movimientos", "pc_cuentas", "pc_traslados", "pc_cuenta_saldos", "pc_notas_credito"
 ]);
 // Estas tablas solo aceptan cambios mediante RPC transaccionales. La misma
 // lista se usa en la capa HTTP y en useSupabase para impedir que un componente
@@ -230,6 +230,7 @@ function avisar(mensaje, tipo) {
 const NCF_NOMBRE = {
   B01: "Cr\xE9dito Fiscal",       // empresas que van a deducir: exige RNC del cliente
   B02: "Consumo",                // consumidor final: la mayor\xEDa de los due\xF1os
+  B04: "Nota de Cr\xE9dito",      // modifica una factura con NCF ya entregada
   B14: "R\xE9gimen Especial",
   B15: "Gubernamental"
 };
@@ -3868,6 +3869,7 @@ function Facturas({ ventas, setVentas, deleteVenta, clientes, citas = [], setCit
   // Se relee la lista desde el servidor.
   const [ncfPara, setNcfPara] = useState(null);
   const [ncfOcupado, setNcfOcupado] = useState(false);
+  const [notaPara, setNotaPara] = useState(null);
   async function asignarNCF(f, tipo, rncCliente) {
     if (f.ncf) {
       avisar("Esta factura ya tiene el NCF " + f.ncf + ". Un comprobante emitido no se reemplaza: si hay que anularlo se emite una nota de cr\xE9dito (B04).", "error");
@@ -4820,7 +4822,9 @@ function Facturas({ ventas, setVentas, deleteVenta, clientes, citas = [], setCit
       factura: ncfPara, ocupado: ncfOcupado,
       onCerrar: () => { if (!ncfOcupado) setNcfPara(null); },
       onAsignar: (tipo, rnc) => asignarNCF(ncfPara, tipo, rnc)
-    }), React.createElement("button", { onClick: () => { abrirEditar(f); }, style: { background: "#dbeafe", color: "#1d4ed8", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 700 } }, "\u270F\uFE0F Editar"), React.createElement("button", {
+    }), f.ncf && f.estado !== "anulada" && React.createElement("button", { onClick: () => setNotaPara(f), title: "Emitir una nota de cr\xE9dito (B04) que modifica esta factura", style: { background: "#fff", color: "#92400e", border: "1.5px solid #d9a441", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 700 } }, "\u21A9\uFE0F Nota de cr\xE9dito"),
+    notaPara && String(notaPara.id) === String(f.id) && React.createElement(ModalNotaCredito, { factura: notaPara, onCerrar: () => setNotaPara(null) }),
+    React.createElement("button", { onClick: () => { abrirEditar(f); }, style: { background: "#dbeafe", color: "#1d4ed8", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 700 } }, "\u270F\uFE0F Editar"), React.createElement("button", {
       onClick: () => setAjusteFondo({ mascota: f.mascota, propietario: f.propietario, telefono: f.telefono, facturaId: String(f.id), facturaNumero: f.numero, fecha: f.fecha }),
       title: "Abonar al fondo del cliente un cobro de más o una devolución",
       style: { background: "#f5f3ff", color: "#5b21b6", border: "1.5px solid #c4b5fd", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 700 }
@@ -6163,6 +6167,164 @@ function PortalCaja({ session, tenant, onLogout, ventas, setVentas, deleteVenta,
 // Rangos de NCF autorizados por la DGII para ESTA clinica. Se leen con RLS (cada
 // clinica ve solo los suyos) y se registran por guardar_secuencia_ncf, que solo
 // acepta al admin y nunca deja repetir un numero ya emitido.
+// Nota de credito (B04). Una factura con NCF ya entregada no se borra ni se
+// reescribe: se le emite una nota que la modifica, total o parcial. El servidor
+// pone el numero, reparte el ITBIS en la misma proporcion de la factura y no
+// deja acreditar mas de lo facturado. Las notas se buscan por el NCF que
+// modifican: es unico en la clinica y no depende del id con que se pinto la
+// factura (las armadas desde ventas se ven con otro id).
+const escHTML = (t) => String(t == null ? "" : t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+function imprimirNotaCredito(n, factura) {
+  const rnc = vetMakeBusinessRNC();
+  const html = "<!doctype html><html><head><meta charset='utf-8'><title>Nota de cr\xE9dito " + escHTML(n.ncf) + "</title>" +
+    "<style>body{font-family:Arial,sans-serif;max-width:720px;margin:24px auto;color:#1a1d23}h1{font-size:20px;margin:0}" +
+    ".cab{display:flex;justify-content:space-between;border-bottom:3px solid #92400e;padding-bottom:12px;margin-bottom:16px}" +
+    ".d{font-size:13px;color:#5a6472;margin:3px 0}table{width:100%;border-collapse:collapse;margin-top:14px}td{padding:7px 4px;border-bottom:1px solid #eee;font-size:14px}" +
+    ".t{font-weight:800;font-size:16px}</style></head><body>" +
+    "<div class='cab'><div><h1>" + escHTML(vetMakeBusinessName()) + "</h1>" + (rnc ? "<p class='d'>RNC: " + escHTML(rnc) + "</p>" : "") +
+    "<p class='d'>" + escHTML(vetMakeContactLine()) + "</p></div>" +
+    "<div style='text-align:right'><h1>NOTA DE CR\xC9DITO</h1><p class='d'><b>NCF: " + escHTML(n.ncf) + "</b></p>" +
+    "<p class='d'>Fecha: " + escHTML(n.fecha) + "</p><p class='d'>Modifica el NCF: " + escHTML(n.ncf_modificado) + "</p></div></div>" +
+    "<p class='d'>Cliente: <b>" + escHTML(n.propietario || (factura && factura.propietario) || "") + "</b>" +
+    (n.rnccliente ? " \xB7 RNC/C\xE9dula: " + escHTML(n.rnccliente) : "") + "</p>" +
+    (factura && factura.numero ? "<p class='d'>Factura #" + escHTML(factura.numero) + "</p>" : "") +
+    "<p class='d'>Motivo: " + escHTML(n.motivo) + "</p>" +
+    "<table><tr><td>Monto</td><td style='text-align:right'>" + RDc(n.subtotal) + "</td></tr>" +
+    "<tr><td>ITBIS</td><td style='text-align:right'>" + RDc(n.itbis) + "</td></tr>" +
+    "<tr><td class='t'>Total acreditado</td><td class='t' style='text-align:right'>" + RDc(n.total) + "</td></tr></table>" +
+    "</body></html>";
+  const w = window.open("", "_blank");
+  if (!w) { avisar("Activa las ventanas emergentes para imprimir la nota de cr\xE9dito.", "error"); return; }
+  w.document.write(html); w.document.close();
+  setTimeout(() => { try { w.print(); } catch (e) {} }, 400);
+}
+function ModalNotaCredito({ factura, onCerrar }) {
+  const E = React.createElement;
+  const [notas, setNotas] = React.useState([]);
+  const [modo, setModo] = React.useState("total");
+  const [monto, setMonto] = React.useState("");
+  const [motivo, setMotivo] = React.useState("");
+  const [ocupado, setOcupado] = React.useState(false);
+  const operacion = React.useRef(vetmakeOperacionId());
+  const cargar = React.useCallback(async () => {
+    const r = await supaFetch("pc_notas_credito", "GET", null, "?ncf_modificado=eq." + encodeURIComponent(factura.ncf) + "&order=created_at.asc");
+    setNotas(Array.isArray(r) ? r : []);
+  }, [factura.ncf]);
+  React.useEffect(() => { cargar(); }, [cargar]);
+  const total = Number(factura.total) || 0;
+  const acreditado = notas.reduce((a, n) => a + (Number(n.total) || 0), 0);
+  const resta = Math.max(0, Math.round((total - acreditado) * 100) / 100);
+  async function emitir() {
+    const m = modo === "total" ? null : Math.round((parseFloat(monto) || 0) * 100) / 100;
+    if (modo === "parcial" && (!m || m <= 0 || m > resta + 0.004)) { avisar("El monto debe ser mayor que cero y no pasar de " + RDc(resta) + ".", "error"); return; }
+    if (motivo.trim().length < 5) { avisar("Escribe el motivo de la nota de cr\xE9dito.", "error"); return; }
+    setOcupado(true);
+    try {
+      const n = await supaRpc("emitir_nota_credito", { p_factura_ref: String(factura.id), p_total: m, p_motivo: motivo.trim(), p_operacion_id: operacion.current });
+      operacion.current = vetmakeOperacionId();
+      avisar("Nota de cr\xE9dito " + n.ncf + " por " + RDc(n.total) + " emitida.", "ok");
+      setMonto(""); setMotivo(""); setModo("total");
+      await cargar();
+      imprimirNotaCredito(n, factura);
+    } catch (e) { avisar(e.message || "No se pudo emitir la nota de cr\xE9dito.", "error"); }
+    setOcupado(false);
+  }
+  const inp = ModalCaja.inp, lbl = ModalCaja.lbl;
+  const opcion = (id, txt) => E("button", { onClick: () => setModo(id), style: { flex: 1, padding: "9px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 700,
+    border: "1.5px solid " + (modo === id ? "#92400e" : "#e0e4e8"), background: modo === id ? "#fff7e6" : "#fff", color: "#334155" } }, txt);
+  return E(ModalCaja, { titulo: "\u21A9\uFE0F Nota de cr\xE9dito (B04)", onCerrar },
+    E("div", { style: { fontSize: 12.5, color: "#5a6472", marginBottom: 12, lineHeight: 1.5 } },
+      "Factura #" + (factura.numero || "") + " \xB7 NCF " + factura.ncf + " \xB7 total " + RDc(total) + ". La nota no borra la factura: la modifica ante la DGII y sale en el 607 con el NCF que modifica."),
+    notas.length > 0 && E("div", { style: { background: "#f8f9fa", borderRadius: 9, padding: 10, marginBottom: 12 } },
+      notas.map((n) => E("div", { key: n.ncf, style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 12.5, padding: "3px 0" } },
+        E("span", null, E("b", null, n.ncf), " \xB7 " + n.fecha + " \xB7 " + n.motivo),
+        E("span", { style: { display: "flex", gap: 8, alignItems: "center" } }, E("b", null, RDc(n.total)),
+          E("button", { onClick: () => imprimirNotaCredito(n, factura), style: { background: "none", border: "none", color: "#1a4fa0", cursor: "pointer", fontWeight: 700, fontSize: 12 } }, "Imprimir")))),
+      E("div", { style: { fontSize: 12, color: "#5a6472", marginTop: 6 } }, "Acreditado " + RDc(acreditado) + " \xB7 queda " + RDc(resta))),
+    resta <= 0
+      ? E("div", { style: { fontSize: 13, color: "#1a6b3a", fontWeight: 700 } }, "La factura ya est\xE1 acreditada completa.")
+      : E(React.Fragment, null,
+          E("div", { style: { display: "flex", gap: 8, marginBottom: 10 } }, opcion("total", "Todo lo que queda (" + RDc(resta) + ")"), opcion("parcial", "Una parte")),
+          modo === "parcial" && E("div", { style: { marginBottom: 10 } },
+            E("label", { style: lbl }, "Monto a acreditar, con ITBIS (RD$)"),
+            E("input", { type: "number", step: "0.01", min: "0", value: monto, onChange: (e) => setMonto(e.target.value), style: inp })),
+          E("label", { style: lbl }, "Motivo"),
+          E("input", { value: motivo, placeholder: "Ej: devoluci\xF3n del producto", onChange: (e) => setMotivo(e.target.value), style: inp }),
+          E("div", { style: ModalCaja.pie },
+            E("button", { onClick: onCerrar, disabled: ocupado, style: ModalCaja.btnGris }, "Cerrar"),
+            E("button", { onClick: emitir, disabled: ocupado, style: { ...ModalCaja.btnVerde, background: "#92400e" } }, ocupado ? "Emitiendo\u2026" : "Emitir nota de cr\xE9dito"))));
+}
+
+// Reporte 607 del mes. La DGII recibe el archivo que genera su propia
+// herramienta de envio: aqui salen las 23 columnas en el orden oficial, para
+// copiarlas en esa herramienta (que valida y produce el TXT). Las anuladas con
+// NCF van al 608 y se listan aparte; las ventas sin NCF no van en el detalle.
+const COLUMNAS_607 = [
+  ["rnc", "RNC/C\xE9dula o Pasaporte"], ["tipo_id", "Tipo Identificaci\xF3n"], ["ncf", "N\xFAmero Comprobante Fiscal"],
+  ["ncf_modificado", "N\xFAmero Comprobante Fiscal Modificado"], ["tipo_ingreso", "Tipo de Ingreso"], ["fecha", "Fecha Comprobante"],
+  ["fecha_retencion", "Fecha de Retenci\xF3n"], ["monto", "Monto Facturado"], ["itbis", "ITBIS Facturado"],
+  ["itbis_retenido", "ITBIS Retenido por Terceros"], ["itbis_percibido", "ITBIS Percibido"], ["isr_retenido", "Retenci\xF3n Renta por Terceros"],
+  ["isr_percibido", "ISR Percibido"], ["isc", "Impuesto Selectivo al Consumo"], ["otros_impuestos", "Otros Impuestos/Tasas"],
+  ["propina", "Monto Propina Legal"], ["efectivo", "Efectivo"], ["cheque_transf", "Cheque/ Transferencia/ Dep\xF3sito"],
+  ["tarjeta", "Tarjeta D\xE9bito/Cr\xE9dito"], ["credito", "Venta a Cr\xE9dito"], ["bonos", "Bonos o Certificados de Regalo"],
+  ["permuta", "Permuta"], ["otras", "Otras Formas de Ventas"]
+];
+function Reporte607() {
+  const E = React.createElement;
+  const [mes, setMes] = React.useState(hoy().slice(0, 7));
+  const [rep, setRep] = React.useState(null);
+  const [cargando, setCargando] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const cargar = React.useCallback(async () => {
+    setCargando(true); setError("");
+    try { setRep(await supaRpc("reporte_607", { p_periodo: mes.replace("-", "") })); }
+    catch (e) { setRep(null); setError(/no autorizado/i.test(e.message) ? "El 607 solo lo genera el administrador." : e.message); }
+    setCargando(false);
+  }, [mes]);
+  React.useEffect(() => { cargar(); }, [cargar]);
+  const filas = (rep && rep.filas) || [];
+  const valor = (f, k) => { const v = f[k]; return typeof v === "number" ? v.toFixed(2) : String(v == null ? "" : v); };
+  const exportar = (sep, ext) => {
+    const esc = (t) => sep === "," ? '"' + String(t).replace(/"/g, '""') + '"' : String(t);
+    const txt = [COLUMNAS_607.map(([, t]) => esc(t)).join(sep)].concat(filas.map((f) => COLUMNAS_607.map(([k]) => esc(valor(f, k))).join(sep))).join("\n");
+    if (ext === "copiar") {
+      navigator.clipboard.writeText(txt.split("\n").slice(1).join("\n")).then(() => avisar("Filas copiadas: p\xE9galas en la herramienta 607 de la DGII.", "ok"), () => avisar("No se pudo copiar.", "error"));
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["\uFEFF" + txt], { type: "text/csv;charset=utf-8" }));
+    a.download = "607_" + (rep && rep.rnc_emisor || "rnc") + "_" + mes.replace("-", "") + ".csv"; a.click();
+  };
+  const sum = (k) => filas.reduce((a, f) => a + (String(f.ncf).startsWith("B04") ? -1 : 1) * (Number(f[k]) || 0), 0);
+  const th = { padding: "7px 8px", fontSize: 10.5, textAlign: "left", background: "#334155", color: "#fff", whiteSpace: "nowrap" };
+  const td = { padding: "6px 8px", fontSize: 12, borderBottom: "1px solid #f0f2f4", whiteSpace: "nowrap" };
+  const aviso = (color, fondo, txt) => E("div", { style: { background: fondo, color, borderRadius: 9, padding: "9px 12px", fontSize: 12.5, marginBottom: 8, lineHeight: 1.5 } }, txt);
+  return E("div", { style: { background: "#fff", border: "1px solid #e0e4e8", borderRadius: 12, padding: 20, marginTop: 16 } },
+    E("div", { style: { fontWeight: 800, fontSize: 15, marginBottom: 4 } }, "\u{1F4C4} Reporte 607 (ventas con comprobante fiscal)"),
+    E("div", { style: { fontSize: 12, color: "#5a6472", marginBottom: 12, lineHeight: 1.5 } },
+      "Las columnas salen en el orden oficial. C\xF3pialas en la herramienta de env\xEDo 607 de la DGII (Oficina Virtual), que es la que valida y genera el archivo. Rev\xEDsalo con tu contador antes de enviarlo."),
+    E("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 } },
+      E("input", { type: "month", value: mes, onChange: (e) => setMes(e.target.value), style: { padding: "7px 10px", borderRadius: 8, border: "1.5px solid #e0e4e8", fontSize: 13 } }),
+      filas.length > 0 && E("button", { onClick: () => exportar("\t", "copiar"), style: { ...ModalCaja.btnVerde, flex: "none", padding: "8px 14px" } }, "\u{1F4CB} Copiar filas"),
+      filas.length > 0 && E("button", { onClick: () => exportar(",", "csv"), style: { ...ModalCaja.btnGris, flex: "none", padding: "8px 14px" } }, "\u2B07 CSV")),
+    error && aviso("#b8232a", "#fdeaea", error),
+    cargando ? E("div", { style: { fontSize: 13, color: "#5a6472" } }, "Cargando\u2026") : rep && E(React.Fragment, null,
+      !rep.rnc_emisor && aviso("#92400e", "#fff7e6", "La cl\xEDnica no tiene RNC en el Perfil comercial: la herramienta de la DGII lo pide en el encabezado."),
+      rep.sin_ncf && rep.sin_ncf.cantidad > 0 && aviso("#92400e", "#fff7e6",
+        rep.sin_ncf.cantidad + " factura(s) del mes por " + RDc(rep.sin_ncf.total) + " no tienen NCF y no aparecen en el 607."),
+      (rep.anuladas_608 || []).length > 0 && aviso("#334155", "#f1f5f9",
+        "Anuladas con NCF (van al 608, no al 607): " + rep.anuladas_608.map((a) => a.ncf + " (" + a.fecha + ")").join(", ") + "."),
+      filas.filter((f) => f.aviso).map((f) => E("div", { key: "a" + f.ncf }, aviso("#92400e", "#fff7e6", f.ncf + ": " + f.aviso))),
+      filas.length === 0
+        ? E("div", { style: { fontSize: 13, color: "#5a6472" } }, "No hay comprobantes con NCF en ese mes.")
+        : E(React.Fragment, null,
+            E("div", { style: { fontSize: 12.5, marginBottom: 8 } },
+              E("b", null, filas.length + " comprobante(s)"), " \xB7 monto neto " + RDc(sum("monto")) + " \xB7 ITBIS neto " + RDc(sum("itbis")) + " (las notas de cr\xE9dito restan)"),
+            E("div", { style: { overflowX: "auto", border: "1.5px solid #e0e4e8", borderRadius: 10 } },
+              E("table", { style: { borderCollapse: "collapse", minWidth: 1600 } },
+                E("thead", null, E("tr", null, COLUMNAS_607.map(([k, t]) => E("th", { key: k, style: th }, t)))),
+                E("tbody", null, filas.map((f) => E("tr", { key: f.ncf }, COLUMNAS_607.map(([k]) => E("td", { key: k, style: td }, valor(f, k)))))))))));
+}
 function RangosNCF({ esAdmin }) {
   const E = React.createElement;
   const [secuencias, setSecuencias] = React.useState([]);
@@ -6520,7 +6682,7 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
             )))
       )
     ),
-    seccion === "ncf" && E(RangosNCF, { esAdmin: tenant?.rol === "admin" }),
+    seccion === "ncf" && E("div", null, E(RangosNCF, { esAdmin: tenant?.rol === "admin" }), tenant?.rol === "admin" && E(Reporte607, null)),
     seccion === "ayuda" && E("div", { style: { display: "grid", gap: 14 } },
       E("div", { style: { background: "#e8f5ed", border: "1px solid #b7dec4", borderRadius: 12, padding: 20 } }, E("div", { style: { fontWeight: 800, fontSize: 16, color: "#166534", marginBottom: 8 } }, "✅ Perfil preparado"), E("div", { style: { fontSize: 13, color: "#365b42", lineHeight: 1.55 } }, "El siguiente orden recomendado es: completar el perfil, agregar el equipo, configurar tarifas y comisiones, y luego crear los accesos de Auth para cada empleado.")),
       E("div", { style: { background: "#fff", border: "1px solid #e0e4e8", borderRadius: 12, padding: 20 } }, E("div", { style: { fontWeight: 800, fontSize: 15, marginBottom: 8 } }, "💰 Tarifas y comisiones"), E("div", { style: { fontSize: 13, color: "#5a6472", lineHeight: 1.5, marginBottom: 14 } }, "Cada negocio empieza sin catálogo heredado. Configura aquí los servicios y el importe de comisión que realmente utilizará."), E("button", { onClick: onGoServicios, style: { background: "#1a4fa0", color: "#fff", border: "none", borderRadius: 8, padding: "10px 15px", cursor: "pointer", fontWeight: 800 } }, "⚙️ Abrir Servicios")),

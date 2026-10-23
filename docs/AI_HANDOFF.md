@@ -69,10 +69,30 @@ el historial remoto de Supabase son la fuente de verdad.
      - Gastos: las opciones de método dejan de incluir «Reservas» (de
        PetColinas) y suman «Tarjeta de crédito de la empresa», «Cheque» y
        «Pendiente de pago».
+  5. **Nota de crédito (B04) y reporte 607**:
+     - Botón «↩️ Nota de crédito» en el detalle de una factura con NCF
+       (`ModalNotaCredito`): total o parcial con motivo; al emitir se imprime
+       (`imprimirNotaCredito`). Las notas se consultan por `ncf_modificado`, que
+       es único en la clínica y no depende del id con que se pinta la factura.
+     - `emitir_nota_credito(p_factura_ref, p_total, p_motivo, p_operacion_id)`:
+       solo admin; factura con NCF y no anulada; nunca acredita más de lo que
+       queda; reparte el ITBIS en la proporción de la factura; toma el B04 del
+       rango de la clínica en la misma transacción; idempotente por operación.
+       `guardar_secuencia_ncf` acepta B04 y revisa solapamientos también contra
+       `pc_notas_credito`.
+     - Configuración → Comprobantes NCF suma `Reporte607` (solo admin):
+       `reporte_607(p_periodo 'AAAAMM')` devuelve las 23 columnas del formato
+       607 en orden oficial (facturas con NCF no anuladas y notas B04), la lista
+       de anuladas con NCF (van al 608) y cuántas facturas del mes no tienen
+       NCF. La pantalla copia las filas con tabuladores (para pegar en la
+       herramienta de envío de la DGII, que valida y genera el TXT) o baja un
+       CSV. A propósito NO se genera el TXT: un formato adivinado que la DGII
+       rechace es peor que pegar en su herramienta.
 - Archivos principales: `index.html`, `scripts/validate.mjs`,
   `supabase/migrations/20261023180000_resultados_laboratorio.sql`,
   `supabase/migrations/20261023190000_comprobantes_fiscales_ncf.sql`,
-  `supabase/migrations/20261023200000_caja_diaria_y_cuentas.sql`.
+  `supabase/migrations/20261023200000_caja_diaria_y_cuentas.sql`,
+  `supabase/migrations/20261023210000_notas_credito_y_607.sql`.
 - Caja en Supabase (aplicado y registrado como `20261023200000
   caja_diaria_y_cuentas`): `pc_cuentas`, `pc_caja_dia`, `pc_caja_movimientos`,
   `pc_traslados`, `pc_cuenta_saldos` con `negocio_id` en la clave, RLS solo de
@@ -94,8 +114,8 @@ el historial remoto de Supabase son la fuente de verdad.
   `laboratorios` con políticas que exigen la carpeta `<negocio_id>/`.
 - Pruebas ejecutadas:
   - `node scripts/validate.mjs`: OK. Ahora espera 40 migraciones y falla si
-    reaparece `ocrLab`, `parsearFilasLab`, `tesseract`, etc.; con NCF y caja
-    espera 42 migraciones y 33 RPC declaradas (comprobado
+    reaparece `ocrLab`, `parsearFilasLab`, `tesseract`, etc.; con NCF, caja,
+    B04 y 607 espera 43 migraciones y 35 RPC declaradas (comprobado
     inyectando `ocrLab`).
   - SQL reversible con dos clínicas (Clínica de Prueba B y PetLand): B ve su
     fila; PetLand ve 0; insertar con el `negocio_id` ajeno da 42501; subir a la
@@ -126,6 +146,18 @@ el historial remoto de Supabase son la fuente de verdad.
     en cuentas y al reabrir. `ROLLBACK` completo; `get_advisors(security)` sin
     hallazgos nuevos (`pc_cuenta_de` pasó a envoltorio invoker sobre
     `private.cuenta_de_impl` por el aviso de SECURITY DEFINER expuesto).
+  - B04/607, SQL reversible: B01 con ITBIS (1.000 + 180, transferencia) va
+    en «Cheque/Transferencia»; la factura pendiente en «Venta a crédito»; la
+    anulada en la lista del 608. Nota parcial de 590 → 500 + 90 ITBIS
+    (B0400000001); reintento con la misma operación devuelve la misma nota;
+    pasar del saldo se rechaza; «el resto» acredita exactamente 590
+    (B0400000002). Rechaza factura sin NCF, anulada y motivo corto. PetLand ve
+    0 filas y no encuentra la factura de B; rol caja: «No autorizado» en el
+    607. `ROLLBACK` completo; `get_advisors(security)` sin hallazgos nuevos.
+  - B04/607, Playwright con Supabase simulado: el 607 muestra avisos (sin RNC
+    de la clínica, facturas sin NCF, anuladas para el 608), «Copiar filas» deja
+    23 columnas separadas por tabulador; la nota parcial manda
+    `emitir_nota_credito` con los argumentos correctos y abre la impresión.
   - Caja, Playwright con Supabase simulado: los cinco modos se dibujan sin
     errores; cerrar manda `caja_cerrar_dia` solo con lo contado; agregar banco
     manda `cuentas_guardar` con sus palabras clave; el traslado propone el banco
@@ -136,11 +168,17 @@ el historial remoto de Supabase son la fuente de verdad.
     con ese id y puede crear otra fila sin NCF. Es el mismo problema que ya
     tenía cualquier factura `venta_...` guardada; conviene que la edición use
     `origen_ref` igual que `asignar_ncf_factura`.
-  - NCF: falta la nota de crédito (B04) para anular una factura con NCF, el
-    reporte 607 desde la app y la facturación electrónica (e-CF), que la DGII
-    va haciendo obligatoria por etapas.
+  - Fiscal: falta la facturación electrónica (e-CF), que la DGII va haciendo
+    obligatoria por etapas, y el 608 como archivo (hoy solo se listan las
+    anuladas con NCF). `anular_factura` sigue permitiendo anular una factura
+    con NCF: conviene que pida el código de anulación del 608 o que obligue a
+    emitir nota de crédito si la factura ya se entregó. En el 607 las ventas
+    B02 se reportan una por una (siempre válido); la consolidación de consumo
+    que permita la norma vigente debe confirmarla el contador. Las notas B04
+    van con montos positivos e identificadas por su NCF modificado; verificar
+    con la herramienta de la DGII al primer envío real.
   - `generar_respaldo_negocio_impl` no incluye todavía `pc_ncf_secuencias`,
-    `pc_lab_resultados` ni las tablas de caja y cuentas.
+    `pc_lab_resultados`, `pc_notas_credito` ni las tablas de caja y cuentas.
   - Caja: un gasto pagado por «Transferencia» en una clínica con dos o más
     bancos cae en «Sin asignar»; el formulario de gastos todavía no pregunta el
     banco. Un gasto «pendiente de pago» entra al libro con la fecha del gasto

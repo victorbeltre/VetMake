@@ -52,7 +52,7 @@ const migrations = fs.readdirSync(migrationDir)
   .filter((name) => name.endsWith(".sql"))
   .sort();
 
-check(migrations.length === 42, `Se esperaban 42 migraciones y se encontraron ${migrations.length}.`);
+check(migrations.length === 43, `Se esperaban 43 migraciones y se encontraron ${migrations.length}.`);
 const versions = new Set();
 for (const name of migrations) {
   const match = name.match(/^(\d{14})_(.+)\.sql$/);
