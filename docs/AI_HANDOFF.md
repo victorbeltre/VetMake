@@ -8,7 +8,8 @@ el historial remoto de Supabase son la fuente de verdad.
 - Agente que entrega: Claude Code.
 - Rama: `claude/modulos-petcolinas-oct`, creada desde
   `codex/import-catalog-duplicates` en `c61ad08` (no desde `main`: `main` sigue en
-  `5b26bad` y el candidato vigente es esa rama). Commits `3430ee5` y `42dd4f6`.
+  `5b26bad` y el candidato vigente es esa rama). Commits `3430ee5`, `42dd4f6` y
+  el de NCF (ver abajo).
 - Objetivo: traer a VetMake lo que PetColinas ganó en octubre, sin datos ni
   marca de PetColinas, separado por clínica.
 - Resultado:
@@ -27,8 +28,31 @@ el historial remoto de Supabase son la fuente de verdad.
      cambió valores). El PDF lleva logo (`negocios.logo_url`), color principal,
      nombre y contacto de la clínica; nada del laboratorio. Subidas y enlaces
      firmados van por `vetmakeAuthedFetch`.
+  3. **Comprobantes fiscales (NCF)**: botón «Asignar NCF» en el detalle de la
+     factura (`ModalNCF`: B02 Consumo o B01 Crédito Fiscal con RNC/cédula del
+     cliente), NCF y RNC impresos en la factura, el PDF y el texto de WhatsApp,
+     y sección **Configuración → Comprobantes NCF** (`RangosNCF`) donde el admin
+     registra los rangos autorizados por la DGII. El RNC de la clínica sale de
+     `negocios.rnc`; se retiró `window._petcolinasRNC`, que se perdía al
+     recargar. Se trajo también `avisar(mensaje, tipo)` (avisos en pantalla):
+     el hemograma y la desparasitación lo llamaban y VetMake no lo tenía.
+     - `asignar_ncf_factura(p_factura, p_tipo, p_rnc_cliente)`: toma el número
+       y lo graba en la factura en UNA transacción, idempotente (si ya tenía NCF
+       devuelve el mismo). Si la factura solo existía armada desde ventas
+       (`venta_...`), la crea con `private.crear_factura` y guarda ese id en
+       `origen_ref` (único por clínica), así un reintento no duplica. El
+       frontend no pasa la factura por `setFacturas` (dispararía otro
+       `crear_factura`): llama la RPC y hace `refetch`.
+     - `guardar_secuencia_ncf(p_secuencia)`: solo admin; si el rango incluye
+       números ya emitidos continúa donde iba y rechaza cualquier solapamiento.
 - Archivos principales: `index.html`, `scripts/validate.mjs`,
-  `supabase/migrations/20261023180000_resultados_laboratorio.sql`.
+  `supabase/migrations/20261023180000_resultados_laboratorio.sql`,
+  `supabase/migrations/20261023190000_comprobantes_fiscales_ncf.sql`.
+- NCF en Supabase (aplicado y registrado como `20261023190000
+  comprobantes_fiscales_ncf`): `pc_ncf_secuencias` con clave `(negocio_id,
+  tipo)`, solo SELECT por RLS; `pc_facturas` gana `ncf`, `ncftipo`,
+  `rnccliente`, `origen_ref` con índices únicos por clínica; funciones en
+  `private` con envoltorio público invoker; `anon` sin EXECUTE.
 - Cambios de Supabase (`vetmake-dev`, ya aplicados y registrados en
   `schema_migrations` como `20261023180000 resultados_laboratorio`):
   `pc_lab_resultados` con clave `(negocio_id, id)`, RLS por `mi_negocio()` +
@@ -36,7 +60,8 @@ el historial remoto de Supabase son la fuente de verdad.
   `laboratorios` con políticas que exigen la carpeta `<negocio_id>/`.
 - Pruebas ejecutadas:
   - `node scripts/validate.mjs`: OK. Ahora espera 40 migraciones y falla si
-    reaparece `ocrLab`, `parsearFilasLab`, `tesseract`, etc. (comprobado
+    reaparece `ocrLab`, `parsearFilasLab`, `tesseract`, etc.; con NCF espera
+    41 migraciones y 23 RPC declaradas (comprobado
     inyectando `ocrLab`).
   - SQL reversible con dos clínicas (Clínica de Prueba B y PetLand): B ve su
     fila; PetLand ve 0; insertar con el `negocio_id` ajeno da 42501; subir a la
@@ -47,16 +72,33 @@ el historial remoto de Supabase son la fuente de verdad.
   - PDF de hemograma generado en Node con un negocio de prueba: nombre, color y
     contacto correctos, sin "PetColinas".
   - Playwright: carga el login sin errores JS.
+  - NCF, SQL reversible con Clínica de Prueba B y PetLand: rango B02 1–3 da
+    B0200000001/2/3; repetir la misma factura devuelve el mismo NCF y una sola
+    fila; el cuarto da «Se acabaron los NCF B02»; B01 sin RNC se rechaza;
+    re-registrar 1–10 sigue en 4; PetLand ve 0 rangos y no puede asignar.
+    `ROLLBACK` completo. `get_advisors(security)` sin hallazgos nuevos.
+  - NCF, Playwright con Supabase simulado: `RangosNCF` lista y registra (llama
+    `guardar_secuencia_ncf` con los argumentos correctos), `ModalNCF` devuelve
+    tipo y RNC, y el PDF lleva RNC de la clínica, NCF, tipo y RNC del cliente.
 - Riesgos o pendientes:
+  - NCF: editar una factura derivada de ventas (`venta_...`) que ya tiene NCF
+    pasa por el flujo heredado de `setFacturas`, que intenta `crear_factura`
+    con ese id y puede crear otra fila sin NCF. Es el mismo problema que ya
+    tenía cualquier factura `venta_...` guardada; conviene que la edición use
+    `origen_ref` igual que `asignar_ncf_factura`.
+  - NCF: falta la nota de crédito (B04) para anular una factura con NCF, el
+    reporte 607 desde la app y la facturación electrónica (e-CF), que la DGII
+    va haciendo obligatoria por etapas.
+  - `generar_respaldo_negocio_impl` no incluye todavía `pc_ncf_secuencias` ni
+    `pc_lab_resultados`.
   - No se probó el flujo con sesión real (faltan credenciales de prueba por rol).
   - `vetmake-dev` está ACTIVO otra vez (se restauró el 2026-10-23).
   - El proyecto `vetmake-dev` contiene tablas `fit13_*` de otra aplicación
     (migraciones `fit13_init` del 26 sep). No son de VetMake; conviene moverlas.
-  - Quedan por traer de PetColinas: caja diaria y cuentas (M18/M19), NCF
-    (M16), gastos con «pagado por» y tarjeta empresarial (M20) y el menú
-    lateral. Caja y cuentas necesitan funciones `SECURITY DEFINER` filtradas por
+  - Quedan por traer de PetColinas: caja diaria y cuentas (M18/M19), gastos
+    con «pagado por» y tarjeta empresarial (M20) y el menú lateral. Caja y cuentas necesitan funciones `SECURITY DEFINER` filtradas por
     `mi_negocio()`; no se portaron todavía.
-- Instrucción para Codex: revisar los dos commits, rebasar sobre el HEAD vigente
+- Instrucción para Codex: revisar los commits, rebasar sobre el HEAD vigente
   del candidato si avanzó, correr `node scripts/validate.mjs` y fusionarlos en el
   candidato cuando el flujo con sesión real esté probado.
 
