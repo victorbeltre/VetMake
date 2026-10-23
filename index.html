@@ -68,7 +68,8 @@ const VETMAKE_MULTI_TENANT_TABLES = new Set([
   "pc_clientes", "pc_ventas", "pc_facturas", "pc_inventario", "pc_empleados",
   "pc_gastos", "pc_citas", "pc_seguimientos", "pc_pagos", "pc_tarifas",
   "pc_historias", "pc_fichas_clinicas", "pc_depositos", "pc_auditoria", "pc_paquetes", "vet_learning_aliases",
-  "pc_lab_resultados", "pc_ncf_secuencias"
+  "pc_lab_resultados", "pc_ncf_secuencias",
+  "pc_caja_libro", "pc_caja_dia", "pc_caja_movimientos", "pc_cuentas", "pc_traslados", "pc_cuenta_saldos"
 ]);
 // Estas tablas solo aceptan cambios mediante RPC transaccionales. La misma
 // lista se usa en la capa HTTP y en useSupabase para impedir que un componente
@@ -2421,6 +2422,7 @@ function fechaLocal(d) {
   return new Date(x.getTime() - x.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
 }
 const hoy = () => fechaLocal();
+const RDc = (n) => "RD$ " + (Number(n) || 0).toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // El valor guardado es "Pago pendiente"; varios sitios comparaban con
 // "pendiente" a secas y por eso la marca ⏳ PEND. nunca aparecía.
 // ─── ABONOS · FACILIDAD DE PAGO ─────────────────────────────────────────────
@@ -10865,6 +10867,18 @@ function RankingVentasFarmacia({ ventas, mes }) {
   );
 }
 
+// Metodos de pago de un gasto. "Tarjeta de credito de la empresa" es deuda, no
+// dinero que sale del banco (el libro de caja la lleva a su propia cuenta), y
+// "Pendiente de pago" es un gasto incurrido que todavia no movio dinero: cuenta
+// en Gastos pero no en el libro de caja hasta que se le pone el metodo real.
+const METODOS_GASTO = [
+  { value: "efectivo", label: "Efectivo" },
+  { value: "transferencia", label: "Transferencia" },
+  { value: "tarjeta", label: "Tarjeta de d\xE9bito" },
+  { value: "tarjeta de credito de la empresa", label: "Tarjeta de cr\xE9dito de la empresa" },
+  { value: "cheque", label: "Cheque" },
+  { value: "pendiente de pago", label: "Pendiente de pago" }
+];
 function Gastos({ gastos, setGastos }) {
   const empleadoActual = vetMakeUserName(getStoredVetMakeSession(), "Usuario actual");
   const [fecha, setFecha] = useState(hoy());
@@ -11037,7 +11051,7 @@ function Gastos({ gastos, setGastos }) {
       label: "M\xE9todo",
       value: metodo,
       onChange: setMetodo,
-      options: [{ value: "efectivo", label: "Efectivo" }, { value: "tarjeta", label: "Tarjeta" }, { value: "transferencia", label: "Transferencia" }, { value: "reservas", label: "Reservas" }]
+      options: METODOS_GASTO
     }
   )), /* @__PURE__ */ React.createElement(Btn, { onClick: addGasto }, operacionesEnCurso.has("nuevo") ? "\u23F3 Registrando..." : "\u{1F4BE} Registrar gasto")), Object.keys(porCat).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 24 } }, Object.entries(porCat).map(([cat, total]) => /* @__PURE__ */ React.createElement("div", { key: cat, style: {
     background: "#fff",
@@ -11055,7 +11069,7 @@ function Gastos({ gastos, setGastos }) {
     minWidth: 160
   } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: C.grisd, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 } }, "TOTAL MES"), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "Georgia,serif", fontSize: 20, color: C.negro, fontWeight: 700 } }, RD(totalFiltrado)))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 15 } }, "\u{1F4CB} Historial de gastos"), /* @__PURE__ */ React.createElement(Input, { label: "", type: "month", value: filtromes, onChange: setFiltroMes })), gastosFiltrados.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "32px 0", color: C.grisd } }, "Sin gastos registrados en este per\xEDodo.") : /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { background: "#f8f9fa" } }, ["Fecha", "Proveedor", "Descripci\xF3n", "Categor\xEDa", "Pagado por", "M\xE9todo", "Monto", ""].map(
     (h) => /* @__PURE__ */ React.createElement("th", { key: h, style: { padding: "10px 12px", textAlign: "left", color: C.grisd, fontWeight: 700, fontSize: 11, textTransform: "uppercase" } }, h)
-  ))), /* @__PURE__ */ React.createElement("tbody", null, [...gastosFiltrados].reverse().map((g) => /* @__PURE__ */ React.createElement("tr", { key: g.id, style: { borderBottom: "1px solid #f4f5f6" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px" } }, g.fecha), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px" } }, g.proveedor || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px", fontWeight: 600 } }, g.descripcion), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px" } }, /* @__PURE__ */ React.createElement(Badge, { color: catColors[g.categoria] || C.grisd }, g.categoria)), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px" } }, g.pagadoPor), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px", textTransform: "capitalize" } }, g.metodo), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px", fontWeight: 700, color: C.rojo } }, RD(g.monto)), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => deleteGasto(g.id), disabled: operacionesEnCurso.has(String(g.id)), title: "Anular gasto", style: { background: "none", border: "none", cursor: operacionesEnCurso.has(String(g.id)) ? "wait" : "pointer", color: C.grisd, fontSize: 12, fontWeight: 700 } }, operacionesEnCurso.has(String(g.id)) ? "\u23F3" : "Anular"), /* @__PURE__ */ React.createElement("button", { onClick: () => startEdit(g), disabled: operacionesEnCurso.has(String(g.id)), style: { background: "#e8f0fe", border: "1px solid #c5d3f0", borderRadius: 6, cursor: operacionesEnCurso.has(String(g.id)) ? "wait" : "pointer", color: C.azul, fontSize: 11, padding: "2px 7px", marginLeft: 6 } }, "Editar")))))))), editingId && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", borderRadius: 16, padding: 28, maxWidth: 600, width: "90%", maxHeight: "90vh", overflowY: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 16, marginBottom: 16 } }, "\u270F\uFE0F Editar gasto"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12 } }, /* @__PURE__ */ React.createElement(Input, { label: "Fecha", type: "date", value: editFecha, onChange: setEditFecha }), /* @__PURE__ */ React.createElement(Input, { label: "Proveedor / origen", value: editProv, onChange: setEditProv, placeholder: "MEDIVET, ESPAVET..." }), /* @__PURE__ */ React.createElement(Select, { label: "Categor\xEDa", value: editCat, onChange: setEditCat, options: [{ value: "alquiler", label: "\u{1F3E0} Alquiler" }, { value: "insumo", label: "\u{1F9F4} Insumos/Compras" }, { value: "nomina", label: "\u{1F465} N\xF3mina" }, { value: "equipo", label: "\u{1F527} Equipo/Herramienta" }, { value: "inversion", label: "\u{1F4A1} Inversi\xF3n" }, { value: "varios", label: "\u{1F4CB} Gastos varios" }] })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 16 } }, /* @__PURE__ */ React.createElement(Input, { label: "Descripci\xF3n", value: editDesc, onChange: setEditDesc }), /* @__PURE__ */ React.createElement(Input, { label: "Monto (RD$)", type: "number", value: editMonto, onChange: setEditMonto }), /* @__PURE__ */ React.createElement(Select, { label: "Pagado por", value: editPagPor, onChange: setEditPagPor, options: [{ value: "Usuario actual", label: empleadoActual }, { value: "Otro", label: "Otro" }] }), editPagPor === "Otro" && /* @__PURE__ */ React.createElement(Input, { label: "Nombre del responsable", value: editOtroPagadoPor, onChange: setEditOtroPagadoPor, placeholder: "Nombre completo" }), /* @__PURE__ */ React.createElement(Select, { label: "M\xE9todo", value: editMetodo, onChange: setEditMetodo, options: [{ value: "efectivo", label: "Efectivo" }, { value: "tarjeta", label: "Tarjeta" }, { value: "transferencia", label: "Transferencia" }, { value: "reservas", label: "Reservas" }] })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, marginTop: 8 } }, /* @__PURE__ */ React.createElement(Btn, { onClick: saveEdit }, operacionesEnCurso.has(String(editingId)) ? "\u23F3 Guardando..." : "\u{1F4BE} Guardar cambios"), /* @__PURE__ */ React.createElement("button", { disabled: operacionesEnCurso.has(String(editingId)), onClick: () => setEditingId(null), style: { padding: "8px 18px", borderRadius: 8, border: "1px solid #ddd", cursor: operacionesEnCurso.has(String(editingId)) ? "wait" : "pointer", background: "#f8f9fa" } }, "Cancelar")))));
+  ))), /* @__PURE__ */ React.createElement("tbody", null, [...gastosFiltrados].reverse().map((g) => /* @__PURE__ */ React.createElement("tr", { key: g.id, style: { borderBottom: "1px solid #f4f5f6" } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px" } }, g.fecha), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px" } }, g.proveedor || "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px", fontWeight: 600 } }, g.descripcion), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px" } }, /* @__PURE__ */ React.createElement(Badge, { color: catColors[g.categoria] || C.grisd }, g.categoria)), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px" } }, g.pagadoPor), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px", textTransform: "capitalize" } }, g.metodo), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px", fontWeight: 700, color: C.rojo } }, RD(g.monto)), /* @__PURE__ */ React.createElement("td", { style: { padding: "10px 12px" } }, /* @__PURE__ */ React.createElement("button", { onClick: () => deleteGasto(g.id), disabled: operacionesEnCurso.has(String(g.id)), title: "Anular gasto", style: { background: "none", border: "none", cursor: operacionesEnCurso.has(String(g.id)) ? "wait" : "pointer", color: C.grisd, fontSize: 12, fontWeight: 700 } }, operacionesEnCurso.has(String(g.id)) ? "\u23F3" : "Anular"), /* @__PURE__ */ React.createElement("button", { onClick: () => startEdit(g), disabled: operacionesEnCurso.has(String(g.id)), style: { background: "#e8f0fe", border: "1px solid #c5d3f0", borderRadius: 6, cursor: operacionesEnCurso.has(String(g.id)) ? "wait" : "pointer", color: C.azul, fontSize: 11, padding: "2px 7px", marginLeft: 6 } }, "Editar")))))))), editingId && /* @__PURE__ */ React.createElement("div", { style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", borderRadius: 16, padding: 28, maxWidth: 600, width: "90%", maxHeight: "90vh", overflowY: "auto" } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, fontSize: 16, marginBottom: 16 } }, "\u270F\uFE0F Editar gasto"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12 } }, /* @__PURE__ */ React.createElement(Input, { label: "Fecha", type: "date", value: editFecha, onChange: setEditFecha }), /* @__PURE__ */ React.createElement(Input, { label: "Proveedor / origen", value: editProv, onChange: setEditProv, placeholder: "MEDIVET, ESPAVET..." }), /* @__PURE__ */ React.createElement(Select, { label: "Categor\xEDa", value: editCat, onChange: setEditCat, options: [{ value: "alquiler", label: "\u{1F3E0} Alquiler" }, { value: "insumo", label: "\u{1F9F4} Insumos/Compras" }, { value: "nomina", label: "\u{1F465} N\xF3mina" }, { value: "equipo", label: "\u{1F527} Equipo/Herramienta" }, { value: "inversion", label: "\u{1F4A1} Inversi\xF3n" }, { value: "varios", label: "\u{1F4CB} Gastos varios" }] })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 16 } }, /* @__PURE__ */ React.createElement(Input, { label: "Descripci\xF3n", value: editDesc, onChange: setEditDesc }), /* @__PURE__ */ React.createElement(Input, { label: "Monto (RD$)", type: "number", value: editMonto, onChange: setEditMonto }), /* @__PURE__ */ React.createElement(Select, { label: "Pagado por", value: editPagPor, onChange: setEditPagPor, options: [{ value: "Usuario actual", label: empleadoActual }, { value: "Otro", label: "Otro" }] }), editPagPor === "Otro" && /* @__PURE__ */ React.createElement(Input, { label: "Nombre del responsable", value: editOtroPagadoPor, onChange: setEditOtroPagadoPor, placeholder: "Nombre completo" }), /* @__PURE__ */ React.createElement(Select, { label: "M\xE9todo", value: editMetodo, onChange: setEditMetodo, options: METODOS_GASTO })), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, marginTop: 8 } }, /* @__PURE__ */ React.createElement(Btn, { onClick: saveEdit }, operacionesEnCurso.has(String(editingId)) ? "\u23F3 Guardando..." : "\u{1F4BE} Guardar cambios"), /* @__PURE__ */ React.createElement("button", { disabled: operacionesEnCurso.has(String(editingId)), onClick: () => setEditingId(null), style: { padding: "8px 18px", borderRadius: 8, border: "1px solid #ddd", cursor: operacionesEnCurso.has(String(editingId)) ? "wait" : "pointer", background: "#f8f9fa" } }, "Cancelar")))));
 }
 function Reportes({ ventas, gastos, pagosNom, empleados }) {
   const [mes, setMes] = useState((/* @__PURE__ */ new Date()).toISOString().slice(0, 7));
@@ -16235,108 +16249,1193 @@ function Cobros({ ventas, setVentas, clientes, soloPropio, setTab, setCrmCliente
   );
 }
 
-function CierreCaja({ ventas, gastos }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// CAJA · Libro de caja y arqueo diario (M18, oct 2026)
+//
+// Saldo Inicial + Entradas - Salidas = Saldo Final.
+//
+// El libro NO guarda movimientos propios: los lee de pc_caja_libro, una vista
+// sobre lo que ya existe (ventas, abonos, gastos) mas los movimientos sueltos
+// que no son ni venta ni gasto. Copiar las ventas a una tabla de caja daria dos
+// fuentes de verdad para el mismo dinero.
+//
+// El arqueo es SOBRE EFECTIVO: una transferencia no esta en la gaveta. El libro
+// de abajo si muestra todos los metodos, con filtro.
+// Caja: el dia a dia y los reportes de periodo, en una sola pestaña porque leen
+// exactamente el mismo libro. Separarlos obligaria a mantener dos veces la
+// misma logica de que cuenta como entrada y que como salida.
+function CierreCaja() {
   const E = React.createElement;
-  const C = { verde: "#1a6b3a", azul: "#1a4fa0", grisd: "#5a6472", rojo: "#c0392b", gold: "#b8860b" };
-  const [fecha, setFecha] = React.useState(hoy());
-
-  const delDia = (ventas || []).filter((v) => String(v.fecha || "").slice(0, 10) === fecha);
-  const gastosDia = (gastos || []).filter((g) => String(g.fecha || "").slice(0, 10) === fecha);
-
-  // Clasificar por forma de pago. Las transferencias se agrupan por banco.
-  const etiquetaDe = (formaCruda) => {
-    const fp = String(formaCruda || "").trim() || "Sin especificar";
-    const l = fp.toLowerCase();
-    return l.includes("efectivo") ? "💵 Efectivo"
-      : l.includes("tarjeta") ? "💳 Tarjeta"
-      : l.includes("transfer") ? "🏦 " + (fp.replace(/transferencias?/i, "").trim() || "Transferencia")
-      : fp;
-  };
-  const grupos = {};
-  let pendiente = 0, cobrado = 0;
-  delDia.forEach((v) => {
-    const monto = Number(v.total) || 0;
-    // Con abonos el dinero NO se cuenta aquí: cada abono se suma abajo, en el
-    // día en que entró. Aquí solo queda lo que todavía falta por cobrar. Si se
-    // contaran los dos lados, el mismo dinero saldría dos veces.
-    if (tieneAbonos(v)) { pendiente += saldoDe(v); return; }
-    if (esPagoPendiente(v)) { pendiente += monto; return; }
-    cobrado += monto;
-    grupos[etiquetaDe(v.formaPago || v.formapago)] = (grupos[etiquetaDe(v.formaPago || v.formapago)] || 0) + monto;
-  });
-  // Abonos recibidos ESTE día, vengan de la venta que vengan: el servicio pudo
-  // ser la semana pasada, pero el dinero entró al cajón hoy.
-  (ventas || []).forEach((v) => {
-    abonosDe(v).forEach((ab) => {
-      if (String(ab.fecha || "").slice(0, 10) !== fecha) return;
-      const monto = Number(ab.monto) || 0;
-      if (!monto) return;
-      cobrado += monto;
-      const forma = ab.forma === "transferencia" && ab.banco ? "Transferencia " + ab.banco : ab.forma;
-      grupos[etiquetaDe(forma)] = (grupos[etiquetaDe(forma)] || 0) + monto;
-    });
-  });
-  const totalGastos = gastosDia.reduce((n, g) => n + (Number(g.monto) || 0), 0);
-  const efectivo = grupos["💵 Efectivo"] || 0;
-  const gastosEfectivo = gastosDia.filter((g) => String(g.formaPago || g.formapago || "").toLowerCase().includes("efectivo")).reduce((n, g) => n + (Number(g.monto) || 0), 0);
-
-  const porArea = {};
-  delDia.forEach((v) => { const a = v.area || "otros"; porArea[a] = (porArea[a] || 0) + (Number(v.total) || 0); });
-
-  const fmt = (n) => "RD$ " + (Number(n) || 0).toLocaleString("es-DO");
-  const card = (hijos, extra) => E("div", { style: { background: "#fff", border: "1px solid #e0e4e8", borderRadius: 14, padding: "18px 20px", ...(extra || {}) } }, hijos);
-  const fila = (lbl, val, color, grande) => E("div", { key: lbl, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: grande ? "10px 0" : "6px 0", borderTop: grande ? "2px solid " + (color || C.verde) : "none", marginTop: grande ? 8 : 0 } },
-    E("span", { style: { fontSize: grande ? 15 : 13.5, fontWeight: grande ? 800 : 500, color: grande ? (color || C.verde) : C.grisd } }, lbl),
-    E("span", { style: { fontSize: grande ? 18 : 14, fontWeight: grande ? 800 : 700, color: color || "#1f2937" } }, val));
-
-  return E("div", { style: { maxWidth: 820, margin: "0 auto" } },
-    E("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 18 } },
-      E("div", null,
-        E("h2", { style: { margin: 0, fontSize: 22, fontWeight: 800 } }, "🧾 Cierre de caja"),
-        E("div", { style: { fontSize: 13, color: C.grisd, marginTop: 4 } }, "Lo que entró en el día, separado por forma de pago, para cuadrar la gaveta.")),
-      E("input", { type: "date", value: fecha, max: hoy(), onChange: (e) => setFecha(e.target.value),
-        style: { border: "1.5px solid #e0e4e8", borderRadius: 10, padding: "9px 13px", fontSize: 14, fontWeight: 600 } })),
-
-    delDia.length === 0
-      ? E("div", { style: { textAlign: "center", padding: "60px 20px", color: "#94a3b8", background: "#fff", borderRadius: 14, border: "1px dashed #e0e4e8" } },
-          E("div", { style: { fontSize: 42, marginBottom: 10 } }, "🗓️"),
-          E("div", { style: { fontWeight: 700, fontSize: 15, color: "#475569" } }, "No hay ventas registradas ese día"))
-      : E("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 16 } },
-          card([
-            E("div", { key: "t", style: { fontSize: 11, fontWeight: 700, color: C.grisd, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 } }, "Entradas por forma de pago"),
-            ...Object.keys(grupos).sort((a, b) => grupos[b] - grupos[a]).map((k) => fila(k, fmt(grupos[k]))),
-            pendiente > 0 && fila("⏳ Pendiente de cobro", fmt(pendiente), C.rojo),
-            fila("Total cobrado", fmt(cobrado), C.verde, true)
-          ]),
-          card([
-            E("div", { key: "t", style: { fontSize: 11, fontWeight: 700, color: C.grisd, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 } }, "Efectivo en gaveta"),
-            fila("Ventas en efectivo", fmt(efectivo)),
-            fila("Gastos pagados en efectivo", "− " + fmt(gastosEfectivo), C.rojo),
-            fila("Debe haber en gaveta", fmt(efectivo - gastosEfectivo), C.gold, true),
-            E("div", { key: "n", style: { fontSize: 11.5, color: C.grisd, marginTop: 10, lineHeight: 1.5 } },
-              "Cuenta el efectivo físico y compáralo con este número. Si no cuadra, revisa las ventas del día.")
-          ]),
-          card([
-            E("div", { key: "t", style: { fontSize: 11, fontWeight: 700, color: C.grisd, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 } }, "Por área"),
-            ...Object.keys(porArea).sort((a, b) => porArea[b] - porArea[a]).map((a) => fila(a.charAt(0).toUpperCase() + a.slice(1), fmt(porArea[a]))),
-            fila(delDia.length + " venta(s) del día", fmt(cobrado + pendiente), C.azul, true)
-          ]),
-          totalGastos > 0 && card([
-            E("div", { key: "t", style: { fontSize: 11, fontWeight: 700, color: C.grisd, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 } }, "Gastos del día"),
-            ...gastosDia.slice(0, 8).map((g, i) => fila((g.descripcion || g.categoria || "Gasto") + (i === 7 && gastosDia.length > 8 ? " …" : ""), fmt(g.monto))),
-            fila("Total gastos", "− " + fmt(totalGastos), C.rojo, true)
-          ])
-        ),
-
-    E(MovimientosAuditoria, { fecha }),
-
-    delDia.length > 0 && E("div", { style: { marginTop: 18, background: "#f0fdf4", border: "2px solid " + C.verde, borderRadius: 14, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 } },
-      E("div", null,
-        E("div", { style: { fontSize: 12, color: "#166534", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 } }, "Resultado del día"),
-        E("div", { style: { fontSize: 12.5, color: C.grisd, marginTop: 3 } }, "Cobrado menos gastos registrados")),
-      E("div", { style: { fontSize: 26, fontWeight: 900, color: cobrado - totalGastos >= 0 ? C.verde : C.rojo } }, fmt(cobrado - totalGastos)))
-  );
+  const [modo, setModo] = React.useState("dia");
+  const MODOS = [["dia", "📅 Día"], ["semana", "🗓 Semana"], ["mes", "📆 Mes"], ["rango", "⇄ Rango"],
+                 ["cuentas", "🏦 Cuentas"]];
+  const tab = (id, txt) => E("button", {
+    key: id, onClick: () => setModo(id), style: {
+      background: modo === id ? "#1a6b3a" : "#fff",
+      color: modo === id ? "#fff" : "#334155",
+      border: "1.5px solid " + (modo === id ? "#1a6b3a" : "#e0e4e8"),
+      borderRadius: 9, padding: "8px 15px", cursor: "pointer",
+      fontSize: 13, fontWeight: modo === id ? 800 : 600
+    }
+  }, txt);
+  return E("div", null,
+    E("h2", { style: { fontFamily: "Georgia,serif", fontSize: 26, marginBottom: 4 } }, "Caja"),
+    E("p", { style: { color: "#5a6472", fontSize: 13, marginBottom: 14 } },
+      "Saldo inicial + entradas − salidas = saldo final. El arqueo cuadra el EFECTIVO de la gaveta; el libro muestra todos los métodos."),
+    E("div", { style: { display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 18 } }, MODOS.map(([i, t]) => tab(i, t))),
+    modo === "dia"     ? E(CajaDia, null)
+    : modo === "cuentas" ? E(CajaCuentas, null)
+    : E(CajaReporte, { modo, key: modo }));
 }
+
+// Reporte de caja para semana, mes o un rango a mano. Todo lo suma Postgres y
+// baja un solo jsonb: un mes son ~150 movimientos pero un año son 1.800, y
+// traerselos al navegador para sumarlos es justo lo que se quito en M7.
+function CajaReporte({ modo }) {
+  const E = React.createElement;
+  const C = { verde: "#1a6b3a", azul: "#1a4fa0", grisd: "#5a6472", rojo: "#c0392b",
+              gold: "#b8860b", borde: "#e0e4e8" };
+
+  // Lunes de la semana de una fecha. La semana del negocio empieza el lunes:
+  // el domingo se abre media jornada y cerrarla con el sabado parte el fin de
+  // semana en dos informes distintos.
+  const lunesDe = (iso) => {
+    const d = new Date(iso + "T12:00:00");
+    const dow = (d.getDay() + 6) % 7;              // 0 = lunes
+    d.setDate(d.getDate() - dow);
+    return fechaLocal(d);
+  };
+  const sumarDias2 = (iso, n) => {
+    const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n);
+    return fechaLocal(d);
+  };
+  const inicioMes = (iso) => iso.slice(0, 8) + "01";
+  const finMes = (iso) => {
+    const [y, m] = iso.split("-").map(Number);
+    return fechaLocal(new Date(y, m, 0));
+  };
+
+  const hoyISO = hoy();
+  const rangoInicial = () =>
+    modo === "semana" ? { desde: lunesDe(hoyISO), hasta: sumarDias2(lunesDe(hoyISO), 6) }
+    : modo === "mes"  ? { desde: inicioMes(hoyISO), hasta: finMes(hoyISO) }
+    : { desde: sumarDias2(hoyISO, -29), hasta: hoyISO };
+
+  const [rango, setRango] = React.useState(rangoInicial);
+  const [rep, setRep] = React.useState(null);
+  const [repPrevio, setRepPrevio] = React.useState(null);
+  const [metodo, setMetodo] = React.useState("");
+  const [categoria, setCategoria] = React.useState("");
+  const [cargando, setCargando] = React.useState(true);
+  const [error, setError] = React.useState("");
+
+  const cargar = React.useCallback(async () => {
+    setCargando(true);
+    try {
+      // El periodo anterior del MISMO tamaño: comparar una semana contra un mes
+      // no dice nada. Se desplaza el rango completo hacia atras.
+      const dias = Math.round((new Date(rango.hasta) - new Date(rango.desde)) / 864e5) + 1;
+      const prevHasta = sumarDias2(rango.desde, -1);
+      const prevDesde = sumarDias2(prevHasta, -(dias - 1));
+      const args = { p_metodo: metodo || null, p_categoria: categoria || null };
+      const [a, b] = await Promise.all([
+        supaRpc("pc_caja_reporte", { p_desde: rango.desde, p_hasta: rango.hasta, ...args }),
+        supaRpc("pc_caja_reporte", { p_desde: prevDesde, p_hasta: prevHasta, ...args })
+      ]);
+      setRep(a); setRepPrevio(b); setError("");
+    } catch (e) {
+      setError("No se pudo generar el reporte: " + e.message);
+      setRep(null);
+    }
+    setCargando(false);
+  }, [rango, metodo, categoria]);
+  React.useEffect(() => { cargar(); }, [cargar]);
+
+  const n = (x) => Number(x) || 0;
+  const mover = (pasos) => {
+    if (modo === "semana") {
+      const d = sumarDias2(rango.desde, 7 * pasos);
+      setRango({ desde: d, hasta: sumarDias2(d, 6) });
+    } else if (modo === "mes") {
+      const [y, m] = rango.desde.split("-").map(Number);
+      const d = fechaLocal(new Date(y, m - 1 + pasos, 1));
+      setRango({ desde: d, hasta: finMes(d) });
+    }
+  };
+
+  const variacion = (hoyV, antes) => {
+    if (!antes) return null;
+    return Math.round(((hoyV - antes) / Math.abs(antes)) * 100);
+  };
+
+  function exportarCSV() {
+    if (!rep) return;
+    const esc = (s) => '"' + String(s == null ? "" : s).replace(/"/g, '""') + '"';
+    const lineas = [];
+    lineas.push(["Reporte de caja", rango.desde + " a " + rango.hasta].map(esc).join(","));
+    lineas.push("");
+    lineas.push(["Totales"].map(esc).join(","));
+    lineas.push(["Entradas", n(rep.totales.entradas).toFixed(2)].map(esc).join(","));
+    lineas.push(["Salidas", n(rep.totales.salidas).toFixed(2)].map(esc).join(","));
+    lineas.push(["Flujo neto", n(rep.totales.neto).toFixed(2)].map(esc).join(","));
+    lineas.push(["Promedio por dia con movimiento", n(rep.totales.promedio_dia_neto).toFixed(2)].map(esc).join(","));
+    lineas.push("");
+    lineas.push(["Por metodo de pago", "Entradas", "Salidas", "Neto"].map(esc).join(","));
+    (rep.por_metodo || []).forEach((m) => lineas.push(
+      [m.metodo, n(m.entradas).toFixed(2), n(m.salidas).toFixed(2), n(m.neto).toFixed(2)].map(esc).join(",")));
+    lineas.push("");
+    lineas.push(["Por categoria", "Entradas", "Salidas", "Neto"].map(esc).join(","));
+    (rep.por_categoria || []).forEach((c) => lineas.push(
+      [c.categoria, n(c.entradas).toFixed(2), n(c.salidas).toFixed(2), n(c.neto).toFixed(2)].map(esc).join(",")));
+    lineas.push("");
+    lineas.push(["Dia", "Entradas", "Salidas", "Neto", "Movimientos"].map(esc).join(","));
+    (rep.por_dia || []).forEach((d) => lineas.push(
+      [d.fecha, n(d.entradas).toFixed(2), n(d.salidas).toFixed(2), n(d.neto).toFixed(2), d.movimientos].map(esc).join(",")));
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["﻿" + lineas.join("\n")], { type: "text/csv;charset=utf-8;" }));
+    a.download = "caja_" + rango.desde + "_" + rango.hasta + ".csv"; a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  const btn = (fondo, color, borde) => ({
+    background: fondo, color, border: "1.5px solid " + (borde || fondo), borderRadius: 9,
+    padding: "8px 14px", cursor: "pointer", fontSize: 12.5, fontWeight: 700
+  });
+  const th = { padding: "9px 10px", textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, color: "#fff" };
+  const td = { padding: "8px 10px", fontSize: 12.5, borderBottom: "1px solid #f0f2f4" };
+
+  const tarjeta = (titulo, valor, color, nota, varPct) => E("div", { style: {
+    background: "#fff", border: "1.5px solid " + C.borde, borderRadius: 11, padding: "13px 15px", flex: "1 1 160px", minWidth: 150
+  } },
+    E("div", { style: { fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: C.grisd, marginBottom: 5 } }, titulo),
+    E("div", { style: { fontSize: 19, fontWeight: 800, color: color || "#1a1d23" } }, valor),
+    varPct != null && E("div", { style: { fontSize: 11.5, fontWeight: 800, marginTop: 3, color: varPct > 0 ? C.verde : varPct < 0 ? C.rojo : C.grisd } },
+      (varPct > 0 ? "▲ " : varPct < 0 ? "▼ " : "= ") + Math.abs(varPct) + "% vs. periodo anterior"),
+    nota && E("div", { style: { fontSize: 11, color: C.grisd, marginTop: 3 } }, nota));
+
+  // Solo la primera letra: el CSS `capitalize` escribe "Octubre De 2026".
+  const mayus1 = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const titulo = modo === "semana" ? "Semana del " + rango.desde + " al " + rango.hasta
+    : modo === "mes" ? mayus1(new Date(rango.desde + "T12:00:00").toLocaleDateString("es-DO", { month: "long", year: "numeric" }))
+    : rango.desde + " a " + rango.hasta;
+
+  return E("div", null,
+    E("div", { style: { display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap", marginBottom: 14 } },
+      (modo === "semana" || modo === "mes") && E(React.Fragment, null,
+        E("button", { onClick: () => mover(-1), style: btn("#fff", "#334155", C.borde) }, "←"),
+        E("div", { style: { fontWeight: 800, fontSize: 15, minWidth: 210, textAlign: "center" } }, titulo),
+        E("button", { onClick: () => mover(1), style: btn("#fff", "#334155", C.borde) }, "→")),
+      modo === "rango" && E(React.Fragment, null,
+        E("input", { type: "date", value: rango.desde, onChange: (e) => setRango((r) => ({ ...r, desde: e.target.value })),
+          style: { padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.borde, fontSize: 12.5 } }),
+        E("span", { style: { color: C.grisd, fontSize: 12.5 } }, "a"),
+        E("input", { type: "date", value: rango.hasta, onChange: (e) => setRango((r) => ({ ...r, hasta: e.target.value })),
+          style: { padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.borde, fontSize: 12.5 } })),
+      E("select", { value: metodo, onChange: (e) => setMetodo(e.target.value),
+        style: { padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.borde, fontSize: 12.5 } },
+        E("option", { value: "" }, "Todos los métodos"),
+        ["EFECTIVO", "TRANSFERENCIA", "TARJETA", "TARJETA EMPRESA", "CHEQUE", "SIN ANOTAR", "MIXTO", "OTRO"].map((m) => E("option", { key: m, value: m }, m))),
+      E("select", { value: categoria, onChange: (e) => setCategoria(e.target.value),
+        style: { padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.borde, fontSize: 12.5, maxWidth: 190 } },
+        E("option", { value: "" }, "Todas las categorías"),
+        ((rep && rep.por_categoria) || []).map((c) => E("option", { key: c.categoria, value: c.categoria }, c.categoria))),
+      E("button", { onClick: exportarCSV, style: btn("#fff", "#334155", C.borde) }, "⬇ CSV"),
+      E("button", { onClick: () => window.print(), style: btn("#fff", "#334155", C.borde) }, "🖨 Imprimir")),
+
+    error && E("div", { style: { background: "#fdeaea", border: "1.5px solid " + C.rojo, color: C.rojo, borderRadius: 9, padding: "11px 13px", fontSize: 13, marginBottom: 14, fontWeight: 600 } }, error),
+
+    cargando ? E("div", { style: { color: C.grisd, padding: "28px 0" } }, "Generando…")
+    : !rep ? null
+    : E(React.Fragment, null,
+      E("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 } },
+        tarjeta("Total ingresado", RDc(rep.totales.entradas), C.verde, null,
+          repPrevio && variacion(n(rep.totales.entradas), n(repPrevio.totales.entradas))),
+        tarjeta("Total egresado", RDc(rep.totales.salidas), C.rojo, null,
+          repPrevio && variacion(n(rep.totales.salidas), n(repPrevio.totales.salidas))),
+        tarjeta("Flujo neto", RDc(rep.totales.neto), n(rep.totales.neto) >= 0 ? C.verde : C.rojo, null,
+          repPrevio && variacion(n(rep.totales.neto), n(repPrevio.totales.neto))),
+        // Sobre los dias que DE VERDAD tuvieron movimiento: dividir entre los
+        // dias del rango mete los domingos cerrados y hunde la media.
+        tarjeta("Promedio por día", RDc(rep.totales.promedio_dia_neto), C.azul,
+          rep.totales.dias_con_movimiento + " día(s) con movimiento de " + rep.dias_rango),
+        tarjeta("Movimientos", String(rep.totales.movimientos), null)),
+
+      // Estado de los arqueos del periodo. Sin esto el reporte diria cuanto
+      // entro pero no si la gaveta cuadro, que es la mitad del control.
+      E("div", { style: {
+        background: n(rep.arqueos.con_descuadre) > 0 ? "#fff7e6" : "#f8f9fa",
+        border: "1.5px solid " + (n(rep.arqueos.con_descuadre) > 0 ? "#d9a441" : C.borde),
+        borderRadius: 10, padding: "12px 14px", fontSize: 12.5, marginBottom: 16
+      } },
+        E("strong", null, "Arqueos: "),
+        rep.arqueos.cerrados + " día(s) cerrado(s)",
+        n(rep.arqueos.abiertos) > 0 ? ", " + rep.arqueos.abiertos + " sin cerrar" : "",
+        n(rep.arqueos.con_descuadre) > 0
+          ? " · " + rep.arqueos.con_descuadre + " con descuadre (neto " + RDc(rep.arqueos.descuadre_neto) +
+            ", suma de diferencias " + RDc(rep.arqueos.descuadre_abs) + ")"
+          : n(rep.arqueos.cerrados) > 0 ? " · todos cuadraron exacto" : "",
+        n(rep.arqueos.cerrados) === 0 && n(rep.arqueos.abiertos) === 0 &&
+          E("span", { style: { color: C.grisd } }, " — ningún día de este periodo tiene arqueo registrado.")),
+
+      E("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginBottom: 16 } },
+        E(Card, null,
+          E("div", { style: { fontWeight: 800, fontSize: 14, marginBottom: 10 } }, "Por método de pago"),
+          (rep.por_metodo || []).length === 0 ? E("div", { style: { color: C.grisd, fontSize: 12.5 } }, "Sin movimientos.")
+          : (rep.por_metodo || []).map((m) => E("div", { key: m.metodo, style: { display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, borderBottom: "1px solid #f0f2f4" } },
+              E("span", null, m.metodo, E("span", { style: { color: C.grisd, fontSize: 11 } }, "  " + m.movimientos)),
+              E("span", { style: { fontWeight: 700, color: n(m.neto) >= 0 ? C.verde : C.rojo } }, RDc(m.neto)))),
+          // SIN ANOTAR y MIXTO no son metodos de pago: son datos sin arreglar.
+          // Decirlo aqui es lo unico que hace que alguien los arregle.
+          (rep.por_metodo || []).some((m) => m.metodo === "SIN ANOTAR" || m.metodo === "MIXTO") &&
+            E("div", { style: { fontSize: 11.5, color: "#92400e", marginTop: 9, lineHeight: 1.5 } },
+              "«Sin anotar» y «Mixto» no son métodos de pago: son movimientos a los que falta arreglarles el dato. Mientras estén ahí, el desglose por método no cuadra del todo.")),
+        E(Card, null,
+          E("div", { style: { fontWeight: 800, fontSize: 14, marginBottom: 10 } }, "Por categoría"),
+          (rep.por_categoria || []).length === 0 ? E("div", { style: { color: C.grisd, fontSize: 12.5 } }, "Sin movimientos.")
+          : (rep.por_categoria || []).slice(0, 14).map((c) => E("div", { key: c.categoria, style: { display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, borderBottom: "1px solid #f0f2f4" } },
+              E("span", null, c.categoria),
+              E("span", { style: { fontWeight: 700, color: n(c.neto) >= 0 ? C.verde : C.rojo } }, RDc(c.neto)))))),
+
+      // El MISMO dinero clasificado por donde cayo, no por como se cobro. Solo
+      // le llega al admin: para caja, por_cuenta viene nulo desde el servidor.
+      rep.por_cuenta && E(TarjetaPorCuenta, { rep, C, n }),
+
+      E("div", { style: { overflowX: "auto", border: "1.5px solid " + C.borde, borderRadius: 11 } },
+        E("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 520 } },
+          E("thead", null, E("tr", { style: { background: C.verde } },
+            E("th", { style: th }, "Día"),
+            E("th", { style: { ...th, textAlign: "right" } }, "Entradas"),
+            E("th", { style: { ...th, textAlign: "right" } }, "Salidas"),
+            E("th", { style: { ...th, textAlign: "right" } }, "Neto"),
+            E("th", { style: { ...th, textAlign: "right" } }, "Movs."))),
+          E("tbody", null,
+            (rep.por_dia || []).length === 0
+              ? E("tr", null, E("td", { colSpan: 5, style: { ...td, textAlign: "center", color: C.grisd, padding: 24 } }, "Sin movimientos en el periodo."))
+              : (rep.por_dia || []).map((d, i) => E("tr", { key: d.fecha, style: { background: i % 2 ? "#fafbfc" : "#fff" } },
+                  E("td", { style: td }, d.fecha),
+                  E("td", { style: { ...td, textAlign: "right", color: C.verde } }, RDc(d.entradas)),
+                  E("td", { style: { ...td, textAlign: "right", color: C.rojo } }, n(d.salidas) ? RDc(d.salidas) : "—"),
+                  E("td", { style: { ...td, textAlign: "right", fontWeight: 700, color: n(d.neto) >= 0 ? C.verde : C.rojo } }, RDc(d.neto)),
+                  E("td", { style: { ...td, textAlign: "right", color: C.grisd } }, d.movimientos))),
+            (rep.por_dia || []).length > 0 && E("tr", { style: { background: "#f0f4f2", fontWeight: 800 } },
+              E("td", { style: td }, "Total"),
+              E("td", { style: { ...td, textAlign: "right", color: C.verde } }, RDc(rep.totales.entradas)),
+              E("td", { style: { ...td, textAlign: "right", color: C.rojo } }, RDc(rep.totales.salidas)),
+              E("td", { style: { ...td, textAlign: "right", color: n(rep.totales.neto) >= 0 ? C.verde : C.rojo } }, RDc(rep.totales.neto)),
+              E("td", { style: { ...td, textAlign: "right" } }, rep.totales.movimientos)))))));
+}
+
+// Clasifica el dinero del periodo por DONDE cayo, no por como se cobro.
+// "Transferencia" mete todos los bancos en el mismo saco; aqui van
+// separados y agrupados en cuatro bloques: la caja chica, los bancos, lo que el
+// banco todavia no ha depositado, y lo que no se pudo atribuir.
+//
+// Cada cuenta se despliega a sus categorias, que es la pregunta que de verdad
+// se hace uno: de lo que entro en efectivo, cuanto fue grooming y cuanto
+// farmacia.
+function TarjetaPorCuenta({ rep, C, n }) {
+  const E = React.createElement;
+  const [abierta, setAbierta] = React.useState("");
+
+  const cuentas = rep.por_cuenta || [];
+  const cruce = rep.por_cuenta_categoria || [];
+  if (!cuentas.length) return null;
+
+  // Los cuatro bloques. El orden es el del dinero mas "real" al mas dudoso:
+  // lo que ya esta en la gaveta, lo que ya esta en el banco, lo que viene de
+  // camino, y lo que no se sabe.
+  const BLOQUES = [
+    ["EFECTIVO",    "💵 Caja chica",            C.verde,
+      "Billetes en la gaveta. Es lo unico que se cuenta a mano."],
+    ["BANCO",       "🏦 Bancos",                C.azul,
+      "Ya esta en la cuenta. Se concilia contra el estado de cuenta."],
+    ["PUENTE",      "💳 Tarjetas por liquidar", "#92400e",
+      "Cobrado, pero el banco todavia no lo ha depositado (T+1 a T+3) y lo abonara neto de comision."],
+    ["CREDITO",     "🧾 Tarjeta empresarial",   "#6b21a8",
+      "Deuda, no dinero: lo pagado con la tarjeta de la empresa no sale del banco hasta que se paga el estado de cuenta."],
+    ["SIN_ASIGNAR", "⚠️ Sin asignar",           C.rojo,
+      "Transferencia sin banco anotado, cobros mixtos y gastos sin metodo. No se sabe donde cayo."]
+  ];
+
+  const total = cuentas.reduce((s, c) => s + n(c.entradas) - n(c.salidas), 0);
+  const pct = (v) => (total ? Math.round((v / total) * 100) : 0);
+
+  const fila = (c) => {
+    const neto = n(c.entradas) - n(c.salidas);
+    const cats = cruce.filter((x) => x.cuenta_id === c.cuenta_id);
+    const abierto = abierta === c.cuenta_id;
+    return E("div", { key: c.cuenta_id, style: { borderBottom: "1px solid #f0f2f4" } },
+      E("button", {
+        onClick: () => setAbierta(abierto ? "" : c.cuenta_id),
+        style: { width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
+          gap: 8, padding: "9px 2px", background: "none", border: "none", cursor: "pointer",
+          fontSize: 12.5, textAlign: "left", fontFamily: "inherit" }
+      },
+        E("span", null,
+          E("span", { style: { color: C.grisd, marginRight: 6, display: "inline-block", width: 10 } }, abierto ? "▾" : "▸"),
+          c.nombre,
+          E("span", { style: { color: C.grisd, fontSize: 11, marginLeft: 6 } }, c.movimientos + " mov.")),
+        E("span", null,
+          E("span", { style: { color: C.grisd, fontSize: 11, marginRight: 8 } }, pct(neto) + "%"),
+          E("span", { style: { fontWeight: 700, color: neto >= 0 ? C.verde : C.rojo } }, RDc(neto)))),
+      abierto && E("div", { style: { padding: "2px 0 10px 24px" } },
+        cats.length === 0
+          ? E("div", { style: { color: C.grisd, fontSize: 12 } }, "Sin desglose.")
+          : cats.map((x) => E("div", { key: x.categoria, style: { display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 } },
+              E("span", { style: { color: C.grisd } }, x.categoria,
+                E("span", { style: { fontSize: 10.5, marginLeft: 6 } }, x.movimientos)),
+              E("span", { style: { fontWeight: 600, color: n(x.neto) >= 0 ? C.verde : C.rojo } }, RDc(x.neto))))));
+  };
+
+  return E(Card, { style: { marginBottom: 16 } },
+    E("div", { style: { fontWeight: 800, fontSize: 14, marginBottom: 3 } }, "Dónde cayó el dinero"),
+    E("div", { style: { fontSize: 11.5, color: C.grisd, marginBottom: 12, lineHeight: 1.5 } },
+      "El mismo dinero de arriba, pero por cuenta en vez de por método de pago. Toca una cuenta para ver sus categorías."),
+    BLOQUES.map(([tipo, titulo, color, nota]) => {
+      const dentro = cuentas.filter((c) => c.tipo === tipo);
+      if (!dentro.length) return null;
+      const sub = dentro.reduce((s, c) => s + n(c.entradas) - n(c.salidas), 0);
+      return E("div", { key: tipo, style: { marginBottom: 14 } },
+        E("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline",
+          gap: 8, paddingBottom: 5, borderBottom: "2px solid " + color } },
+          E("span", { style: { fontWeight: 800, fontSize: 12.5, color } }, titulo),
+          E("span", { style: { fontWeight: 800, fontSize: 13.5, color } }, RDc(sub),
+            E("span", { style: { color: C.grisd, fontSize: 11, marginLeft: 7, fontWeight: 600 } }, pct(sub) + "%"))),
+        E("div", { style: { fontSize: 11, color: C.grisd, margin: "5px 0 2px", lineHeight: 1.45 } }, nota),
+        dentro.map(fila));
+    }));
+}
+
+// M19 · Las cuentas donde vive el dinero, no solo la gaveta.
+//
+// En PetColinas el efectivo era apenas el 31% del dinero: el resto entraba por
+// el banco o la tarjeta y nadie lo verificaba. Esto lo verifica — pero NO
+// como un arqueo. La gaveta se cuenta; el banco se concilia contra el estado de
+// cuenta, y dia a dia no cuadra por razones normales (las tarjetas caen a T+1 o
+// T+3 y netas de comision, cargos del banco, cheques sin cobrar). Por eso la
+// diferencia aqui no se llama descuadre: se llama partidas pendientes.
+//
+// Todo el modulo es solo-admin, y quien lo decide es el servidor: si
+// pc_cuentas_estado responde "No autorizado", la pantalla lo dice y ya. Sin
+// lista de correos en el navegador que se quede vieja.
+function CajaCuentas() {
+  const E = React.createElement;
+  const C = { verde: "#1a6b3a", azul: "#1a4fa0", grisd: "#5a6472", rojo: "#c0392b",
+              gold: "#b8860b", borde: "#e0e4e8" };
+
+  const [fecha, setFecha] = React.useState(hoy());
+  const [estado, setEstado] = React.useState(null);
+  const [traslados, setTraslados] = React.useState([]);
+  const [cuentas, setCuentas] = React.useState([]);
+  const [cargando, setCargando] = React.useState(true);
+  const [error, setError] = React.useState("");
+  const [guardando, setGuardando] = React.useState(false);
+  const [modal, setModal] = React.useState("");        // "traslado" | "saldo"
+  const [cuentaSel, setCuentaSel] = React.useState(null);
+
+  const cargar = React.useCallback(async () => {
+    setCargando(true);
+    try {
+      const [e, t, c] = await Promise.all([
+        supaRpc("pc_cuentas_estado", { p_fecha: fecha }),
+        supaFetch("pc_traslados", "GET", null, "?fecha=eq." + fecha + "&order=id.asc"),
+        supaFetch("pc_cuentas", "GET", null, "?activa=eq.true&order=orden.asc")
+      ]);
+      setEstado(e); setTraslados(Array.isArray(t) ? t : []);
+      setCuentas(Array.isArray(c) ? c : []); setError("");
+    } catch (ex) {
+      setEstado(null);
+      setError(/no autorizado/i.test(ex.message)
+        ? "Las cuentas de banco solo las ve el administrador."
+        : "No se pudieron cargar las cuentas: " + ex.message);
+    }
+    setCargando(false);
+  }, [fecha]);
+  React.useEffect(() => { cargar(); }, [cargar]);
+
+  const n = (x) => Number(x) || 0;
+  const lista = (estado && estado.cuentas) || [];
+
+  async function guardarTraslado(t) {
+    setGuardando(true);
+    try {
+      await supaRpc("cuentas_registrar_traslado", { p_traslado: {
+        fecha, hora: t.hora || null, cuenta_origen: t.origen, cuenta_destino: t.destino,
+        monto: t.monto, monto_recibido: t.recibido == null ? null : t.recibido,
+        concepto: t.concepto, referencia: t.referencia || null, notas: t.notas || null
+      } });
+      const dif = t.recibido == null ? 0 : t.monto - t.recibido;
+      avisar("Traslado de " + RDc(t.monto) + " registrado." +
+        (dif > 0 ? " Comisión/cargo: " + RDc(dif) + "." : ""), "ok");
+      setModal(""); cargar();
+    } catch (e) { avisar("No se pudo registrar el traslado: " + e.message, "error"); }
+    setGuardando(false);
+  }
+
+  async function guardarSaldo(cuentaId, saldo, notas) {
+    setGuardando(true);
+    try {
+      await supaRpc("cuentas_declarar_saldo", { p_cuenta_id: cuentaId, p_fecha: fecha, p_saldo: saldo, p_notas: notas || null });
+      avisar("Saldo de " + RDc(saldo) + " anotado.", "ok");
+      setModal(""); setCuentaSel(null); cargar();
+    } catch (e) { avisar("No se pudo guardar el saldo: " + e.message, "error"); }
+    setGuardando(false);
+  }
+
+  const btn = (fondo, color, borde) => ({
+    background: fondo, color, border: "1.5px solid " + (borde || fondo), borderRadius: 9,
+    padding: "8px 14px", cursor: "pointer", fontSize: 12.5, fontWeight: 700
+  });
+  const linea = (etq, valor, color, grueso) => E("div", {
+    style: { display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12.5 }
+  }, E("span", { style: { color: C.grisd } }, etq),
+     E("span", { style: { fontWeight: grueso ? 800 : 600, color: color || "#1a1d23" } }, valor));
+
+  const nombreCuenta = (id) => {
+    const c = cuentas.find((x) => x.id === id);
+    return (c && c.nombre) || id;
+  };
+
+  function tarjetaCuenta(c) {
+    const difer = c.diferencia == null ? null : n(c.diferencia);
+    const cuadra = difer != null && Math.abs(difer) < 0.005;
+    return E(Card, { key: c.cuenta_id },
+      E("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 9 } },
+        E("div", { style: { fontWeight: 800, fontSize: 14.5 } }, c.nombre),
+        E("span", { style: {
+          fontSize: 10, fontWeight: 800, letterSpacing: 0.5, padding: "3px 8px", borderRadius: 20,
+          background: c.tipo === "EFECTIVO" ? "#e8f5ee" : c.tipo === "BANCO" ? "#e8f0fe"
+                    : c.tipo === "PUENTE" ? "#fff7e6" : c.tipo === "CREDITO" ? "#f3e8ff" : "#fdeaea",
+          color: c.tipo === "EFECTIVO" ? C.verde : c.tipo === "BANCO" ? C.azul
+               : c.tipo === "PUENTE" ? "#92400e" : c.tipo === "CREDITO" ? "#6b21a8" : C.rojo
+        } }, c.tipo === "SIN_ASIGNAR" ? "SIN ASIGNAR" : c.tipo)),
+
+      linea("Empezó el día con", RDc(c.saldo_inicial)),
+      linea("Entró", RDc(c.entradas), n(c.entradas) ? C.verde : C.grisd),
+      linea("Salió", n(c.salidas) ? RDc(c.salidas) : "—", n(c.salidas) ? C.rojo : C.grisd),
+      E("div", { style: { borderTop: "1px solid " + C.borde, margin: "7px 0 2px" } }),
+      linea("Debería terminar con", RDc(c.saldo_final_teorico), C.azul, true),
+
+      // El ancla. Sin un saldo real de partida, el "teorico" es la suma de todo
+      // desde 2025 y no significa nada. Mejor decirlo que enseñar el numero.
+      c.sin_ancla
+        ? E("div", { style: { background: "#fff7e6", border: "1px solid #d9a441", borderRadius: 8,
+            padding: "8px 10px", fontSize: 11.5, color: "#92400e", marginTop: 9, lineHeight: 1.45 } },
+            "Este saldo no tiene punto de partida: es la suma de todo lo registrado desde el principio. ",
+            E("strong", null, "Anota una vez el saldo real"),
+            " y a partir de ahí el teórico sale de ahí y empieza a servir.")
+        : E("div", { style: { fontSize: 11, color: C.grisd, marginTop: 8 } },
+            "Parte del saldo real del " + c.ancla_fecha +
+            (c.ancla_origen === "arqueo" ? " (arqueo)" : " (anotado a mano)") + ": " + RDc(c.ancla_saldo)),
+
+      c.declarado_hoy != null
+        ? E("div", { style: {
+            background: cuadra ? "#e8f5ee" : "#fff7e6",
+            border: "1.5px solid " + (cuadra ? C.verde : "#d9a441"),
+            borderRadius: 9, padding: "9px 11px", marginTop: 10, fontSize: 12.5
+          } },
+            linea(c.declarado_origen === "arqueo" ? "Contado en la gaveta" : "Saldo real anotado",
+                  RDc(c.declarado_hoy), null, true),
+            linea(c.se_cuenta ? "Descuadre" : "Partidas pendientes",
+                  (difer > 0 ? "+" : "") + RDc(difer), cuadra ? C.verde : C.gold, true),
+            !cuadra && !c.se_cuenta && E("div", { style: { fontSize: 11, color: "#92400e", marginTop: 5, lineHeight: 1.45 } },
+              "Esto NO es un descuadre. Lo normal es que sean tarjetas que el banco todavía no ha depositado, cargos del banco o cheques sin cobrar."),
+            !cuadra && c.se_cuenta && E("div", { style: { fontSize: 11, color: "#92400e", marginTop: 5, lineHeight: 1.45 } },
+              "La gaveta sí se cuenta: aquí una diferencia es un error de registro o falta dinero."))
+        : !c.se_cuenta && E("button", {
+            onClick: () => { setCuentaSel(c); setModal("saldo"); },
+            style: { ...btn("#fff", "#334155", C.borde), marginTop: 10, width: "100%" }
+          }, "✍️ Anotar el saldo real de hoy"),
+
+      c.cuenta_id === "sin_asignar" && n(c.saldo_final_teorico) !== 0 &&
+        E("div", { style: { fontSize: 11.5, color: "#92400e", marginTop: 9, lineHeight: 1.45 } },
+          "Aquí cae lo que no se puede atribuir: transferencia sin banco anotado, cobros mixtos y gastos sin método de pago. Mientras tenga saldo, las cuentas de arriba están incompletas."));
+  }
+
+  const th = { padding: "9px 10px", textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, color: "#fff" };
+  const td = { padding: "8px 10px", fontSize: 12.5, borderBottom: "1px solid #f0f2f4" };
+
+  return E("div", null,
+    E("div", { style: { display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 16 } },
+      E("div", null,
+        E("label", { style: { fontSize: 10.5, fontWeight: 700, color: C.grisd, textTransform: "uppercase", display: "block", marginBottom: 4 } }, "Día"),
+        E("input", { type: "date", value: fecha, onChange: (e) => setFecha(e.target.value),
+          style: { padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.borde, fontSize: 13 } })),
+      !error && E("button", { onClick: () => setModal("traslado"), style: btn(C.azul, "#fff") }, "⇄ Mover dinero entre cuentas"),
+      !error && E("button", { onClick: () => setModal("bancos"), style: btn("#fff", "#334155", C.borde) }, "🏦 Bancos de la clínica"),
+      !error && E("button", { onClick: cargar, style: btn("#fff", "#334155", C.borde) }, "🔄 Actualizar")),
+
+    error && E("div", { style: { background: "#fdeaea", border: "1.5px solid " + C.rojo, color: C.rojo,
+      borderRadius: 9, padding: "11px 13px", fontSize: 13, marginBottom: 14, fontWeight: 600 } }, error),
+
+    cargando ? E("div", { style: { color: C.grisd, padding: "28px 0" } }, "Cargando…")
+    : error ? null
+    : E(React.Fragment, null,
+      E("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(290px, 1fr))", gap: 14, marginBottom: 18 } },
+        lista.map(tarjetaCuenta)),
+      !lista.some((c) => c.tipo === "BANCO") && E("div", { style: { background: "#fff7e6", border: "1.5px solid #d9a441", color: "#92400e",
+        borderRadius: 9, padding: "11px 13px", fontSize: 12.5, marginBottom: 16, lineHeight: 1.5 } },
+        "Todav\xEDa no hay ning\xFAn banco registrado: las transferencias caen en \u00ABSin asignar\u00BB. Agr\xE9galos en \u00AB\u{1F3E6} Bancos de la cl\xEDnica\u00BB con las palabras con que se anotan en las ventas (por ejemplo \u00ABbhd\u00BB o \u00ABpopular\u00BB)."),
+
+      E("div", { style: { fontWeight: 800, fontSize: 14, marginBottom: 9 } },
+        "Dinero movido entre cuentas hoy"),
+      E("div", { style: { fontSize: 12, color: C.grisd, marginBottom: 10, lineHeight: 1.5 } },
+        "Un traslado no es ingreso ni gasto: es la misma plata cambiando de sitio, así que no toca el flujo del negocio. Si al destino llega menos de lo que salió, esa resta es la comisión del banco — medida, no estimada."),
+      E("div", { style: { overflowX: "auto", border: "1.5px solid " + C.borde, borderRadius: 11 } },
+        E("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 620 } },
+          E("thead", null, E("tr", { style: { background: C.azul } },
+            E("th", { style: th }, "Concepto"),
+            E("th", { style: th }, "De"),
+            E("th", { style: th }, "A"),
+            E("th", { style: { ...th, textAlign: "right" } }, "Salió"),
+            E("th", { style: { ...th, textAlign: "right" } }, "Llegó"),
+            E("th", { style: { ...th, textAlign: "right" } }, "Comisión"))),
+          E("tbody", null,
+            traslados.length === 0
+              ? E("tr", null, E("td", { colSpan: 6, style: { ...td, textAlign: "center", color: C.grisd, padding: 22 } },
+                  "Ningún traslado este día."))
+              : traslados.map((t, i) => {
+                  const rec = t.monto_recibido == null ? n(t.monto) : n(t.monto_recibido);
+                  const com = n(t.monto) - rec;
+                  return E("tr", { key: t.id, style: { background: i % 2 ? "#fafbfc" : "#fff" } },
+                    E("td", { style: td }, t.concepto),
+                    E("td", { style: td }, nombreCuenta(t.cuenta_origen)),
+                    E("td", { style: td }, nombreCuenta(t.cuenta_destino)),
+                    E("td", { style: { ...td, textAlign: "right", color: C.rojo } }, RDc(t.monto)),
+                    E("td", { style: { ...td, textAlign: "right", color: C.verde } }, RDc(rec)),
+                    E("td", { style: { ...td, textAlign: "right", fontWeight: 700, color: com > 0 ? C.gold : C.grisd } },
+                      com > 0 ? RDc(com) : "—"));
+                })))),
+
+      E("div", { style: { fontSize: 11.5, color: C.grisd, marginTop: 14, lineHeight: 1.55 } },
+        E("strong", null, "Por qué el banco no se arquea: "),
+        "la gaveta se cuenta y si no cuadra hay un error o falta dinero, hoy. El banco no se puede contar, se compara contra el estado de cuenta, y día a día nunca va a dar exacto: las tarjetas caen uno a tres días después y netas de comisión, el banco cobra cargos y los cheques tardan en hacerse efectivos. Por eso aquí esa diferencia se llama partidas pendientes y no descuadre.")),
+
+    modal === "traslado" && E(ModalTraslado, {
+      fecha, cuentas, ocupado: guardando,
+      onCerrar: () => setModal(""), onGuardar: guardarTraslado
+    }),
+    modal === "bancos" && E(ModalBancos, { onCerrar: () => { setModal(""); cargar(); } }),
+    modal === "saldo" && cuentaSel && E(ModalSaldoBanco, {
+      fecha, cuenta: cuentaSel, ocupado: guardando,
+      onCerrar: () => { setModal(""); setCuentaSel(null); },
+      onGuardar: (saldo, notas) => guardarSaldo(cuentaSel.cuenta_id, saldo, notas)
+    }));
+}
+
+// Los bancos de la clinica. En PetColinas estaban escritos en el codigo; aqui
+// cada clinica da de alta los suyos con las palabras con que su personal los
+// anota en la forma de pago ("bhd", "popular"...). Con un solo banco activo, una
+// transferencia sin banco anotado cae en el; con dos o mas, en "Sin asignar".
+function ModalBancos({ onCerrar }) {
+  const E = React.createElement;
+  const [bancos, setBancos] = React.useState([]);
+  const [ocupado, setOcupado] = React.useState(false);
+  const [nuevo, setNuevo] = React.useState({ nombre: "", alias: "" });
+  const [edicion, setEdicion] = React.useState({});
+  const cargar = React.useCallback(async () => {
+    const r = await supaFetch("pc_cuentas", "GET", null, "?tipo=eq.BANCO&order=orden.asc");
+    setBancos(Array.isArray(r) ? r : []);
+  }, []);
+  React.useEffect(() => { cargar(); }, [cargar]);
+  const partir = (t) => String(t || "").split(",").map((x) => x.trim().toLowerCase()).filter((x) => x.length >= 3);
+  async function guardar(cuenta) {
+    setOcupado(true);
+    try {
+      await supaRpc("cuentas_guardar", { p_cuenta: cuenta });
+      avisar(cuenta.id ? "Banco actualizado." : "Banco agregado.", "ok");
+      setNuevo({ nombre: "", alias: "" }); setEdicion({}); cargar();
+    } catch (e) { avisar("No se pudo guardar el banco: " + e.message, "error"); }
+    setOcupado(false);
+  }
+  const inp = ModalCaja.inp, lbl = ModalCaja.lbl;
+  return E(ModalCaja, { titulo: "\u{1F3E6} Bancos de la cl\xEDnica", onCerrar },
+    E("div", { style: { fontSize: 12, color: "#5a6472", marginBottom: 12, lineHeight: 1.5 } },
+      "Las palabras clave se buscan en la forma de pago de cada venta, abono o gasto para saber a qu\xE9 banco lleg\xF3 el dinero. Usa las que tu equipo escribe de verdad (m\xEDnimo 3 letras, separadas por coma)."),
+    bancos.length === 0 && E("div", { style: { fontSize: 12.5, color: "#92400e", marginBottom: 12 } }, "No hay bancos todav\xEDa."),
+    bancos.map((b) => {
+      const ed = edicion[b.id];
+      return E("div", { key: b.id, style: { border: "1.5px solid #e0e4e8", borderRadius: 10, padding: 11, marginBottom: 9, opacity: b.activa ? 1 : 0.6 } },
+        E("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 } },
+          E("div", { style: { fontWeight: 800, fontSize: 13.5 } }, b.nombre + (b.activa ? "" : " (desactivado)")),
+          E("button", { disabled: ocupado, onClick: () => guardar({ id: b.id, activa: !b.activa }),
+            style: { ...ModalCaja.btnGris, flex: "none", padding: "5px 10px", fontSize: 11.5 } }, b.activa ? "Desactivar" : "Activar")),
+        ed == null
+          ? E("div", { style: { fontSize: 12, color: "#5a6472", marginTop: 5 } },
+              "Palabras clave: " + ((b.alias || []).join(", ") || "ninguna"), " ",
+              E("button", { onClick: () => setEdicion({ [b.id]: (b.alias || []).join(", ") }),
+                style: { background: "none", border: "none", color: "#1a4fa0", cursor: "pointer", fontSize: 12, fontWeight: 700 } }, "Editar"))
+          : E("div", { style: { display: "flex", gap: 8, marginTop: 7 } },
+              E("input", { value: ed, autoFocus: true, onChange: (e) => setEdicion({ [b.id]: e.target.value }), style: inp }),
+              E("button", { disabled: ocupado, onClick: () => guardar({ id: b.id, alias: partir(ed) }), style: { ...ModalCaja.btnVerde, flex: "none", padding: "8px 14px" } }, "Guardar")));
+    }),
+    E("div", { style: { background: "#f8f9fa", borderRadius: 10, padding: 12, marginTop: 6 } },
+      E("div", { style: { fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 8 } }, "Agregar un banco"),
+      E("label", { style: lbl }, "Nombre"),
+      E("input", { value: nuevo.nombre, placeholder: "Ej: BHD Le\xF3n", onChange: (e) => setNuevo((n) => ({ ...n, nombre: e.target.value })), style: inp }),
+      E("label", { style: { ...lbl, marginTop: 9 } }, "Palabras clave"),
+      E("input", { value: nuevo.alias, placeholder: "Ej: bhd, leon", onChange: (e) => setNuevo((n) => ({ ...n, alias: e.target.value })), style: inp }),
+      E("div", { style: ModalCaja.pie },
+        E("button", { onClick: onCerrar, disabled: ocupado, style: ModalCaja.btnGris }, "Cerrar"),
+        E("button", { disabled: ocupado || !nuevo.nombre.trim(),
+          onClick: () => guardar({ nombre: nuevo.nombre.trim(), alias: partir(nuevo.alias || nuevo.nombre) }),
+          style: ModalCaja.btnVerde }, ocupado ? "Guardando\u2026" : "Agregar banco"))));
+}
+
+// Mover dinero de una cuenta a otra. "Llegó" se deja vacio cuando llega lo mismo
+// que salio (un deposito de efectivo); se rellena cuando el banco se queda con
+// algo (la liquidacion del POS), y esa resta ES la comision real.
+function ModalTraslado({ fecha, cuentas, ocupado, onCerrar, onGuardar }) {
+  const E = React.createElement;
+  const [origen, setOrigen] = React.useState("gaveta");
+  const [destino, setDestino] = React.useState(() => ((cuentas || []).find((c) => c.tipo === "BANCO") || {}).id || "");
+  const [monto, setMonto] = React.useState("");
+  const [recibido, setRecibido] = React.useState("");
+  const [concepto, setConcepto] = React.useState("");
+  const [referencia, setReferencia] = React.useState("");
+  const [hora, setHora] = React.useState(new Date().toTimeString().slice(0, 5));
+
+  const m = Number(monto) || 0;
+  const r = recibido === "" ? null : (Number(recibido) || 0);
+  const comision = r == null ? 0 : m - r;
+  const malo = !m || m <= 0 || origen === destino || !concepto.trim() ||
+               (r != null && (r <= 0 || r > m));
+
+  const inp = { width: "100%", padding: "9px 11px", borderRadius: 8, border: "1.5px solid #e0e4e8", fontSize: 13.5, boxSizing: "border-box" };
+  const lbl = { fontSize: 10.5, fontWeight: 700, color: "#5a6472", textTransform: "uppercase", display: "block", marginBottom: 4 };
+  const opciones = (cuentas || []).map((c) => E("option", { key: c.id, value: c.id }, c.nombre));
+
+  return E("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000,
+    display: "flex", alignItems: "center", justifyContent: "center", padding: 16 } },
+    E("div", { style: { background: "#fff", borderRadius: 16, padding: 26, width: "100%", maxWidth: 480, maxHeight: "92vh", overflowY: "auto" } },
+      E("div", { style: { fontWeight: 800, fontSize: 17, marginBottom: 3 } }, "⇄ Mover dinero entre cuentas"),
+      E("div", { style: { fontSize: 12, color: "#5a6472", marginBottom: 16, lineHeight: 1.5 } },
+        "Del ", fecha, ". No es un ingreso ni un gasto: es la misma plata cambiando de sitio."),
+
+      E("div", { style: { display: "flex", gap: 10, marginBottom: 12 } },
+        E("div", { style: { flex: 1 } },
+          E("label", { style: lbl }, "Sale de"),
+          E("select", { value: origen, onChange: (e) => setOrigen(e.target.value), style: inp }, opciones)),
+        E("div", { style: { flex: 1 } },
+          E("label", { style: lbl }, "Entra en"),
+          E("select", { value: destino, onChange: (e) => setDestino(e.target.value), style: inp }, opciones))),
+      origen === destino && E("div", { style: { color: "#c0392b", fontSize: 12, marginBottom: 10, fontWeight: 600 } },
+        "Tiene que ser de una cuenta a otra distinta."),
+
+      E("div", { style: { marginBottom: 12 } },
+        E("label", { style: lbl }, "Concepto"),
+        E("input", { value: concepto, onChange: (e) => setConcepto(e.target.value), style: inp,
+          placeholder: "Depósito del efectivo del día / Liquidación POS" })),
+
+      E("div", { style: { display: "flex", gap: 10, marginBottom: 6 } },
+        E("div", { style: { flex: 1 } },
+          E("label", { style: lbl }, "Salió (RD$)"),
+          E("input", { type: "number", step: "0.01", value: monto, onChange: (e) => setMonto(e.target.value), style: inp, placeholder: "0.00" })),
+        E("div", { style: { flex: 1 } },
+          E("label", { style: lbl }, "Llegó (RD$)"),
+          E("input", { type: "number", step: "0.01", value: recibido, onChange: (e) => setRecibido(e.target.value), style: inp, placeholder: "igual" }))),
+      E("div", { style: { fontSize: 11, color: "#5a6472", marginBottom: 12, lineHeight: 1.45 } },
+        "Deja «Llegó» vacío si entró lo mismo que salió. Si el banco te depositó menos (liquidación de tarjetas), escribe lo que de verdad te abonó."),
+      r != null && r > m && E("div", { style: { color: "#c0392b", fontSize: 12, marginBottom: 10, fontWeight: 600 } },
+        "No puede llegar más de lo que salió."),
+      comision > 0 && E("div", { style: { background: "#fff7e6", border: "1.5px solid #d9a441", borderRadius: 9,
+        padding: "9px 11px", fontSize: 12.5, marginBottom: 12, color: "#92400e", fontWeight: 700 } },
+        "Comisión / cargo: ", RDc(comision)),
+
+      E("div", { style: { display: "flex", gap: 10, marginBottom: 18 } },
+        E("div", { style: { flex: 1 } },
+          E("label", { style: lbl }, "Hora"),
+          E("input", { type: "time", value: hora, onChange: (e) => setHora(e.target.value), style: inp })),
+        E("div", { style: { flex: 1 } },
+          E("label", { style: lbl }, "Referencia"),
+          E("input", { value: referencia, onChange: (e) => setReferencia(e.target.value), style: inp, placeholder: "N.º de depósito" }))),
+
+      E("div", { style: { display: "flex", gap: 10 } },
+        E("button", { onClick: onCerrar, disabled: ocupado,
+          style: { flex: 1, padding: "11px", borderRadius: 9, border: "1.5px solid #e0e4e8", background: "#f8f9fa", cursor: "pointer", fontWeight: 700, fontSize: 13.5 } }, "Cancelar"),
+        E("button", {
+          onClick: () => onGuardar({ origen, destino, monto: Number(m.toFixed(2)),
+            recibido: r == null ? null : Number(r.toFixed(2)), concepto: concepto.trim(), referencia, hora }),
+          disabled: ocupado || malo,
+          style: { flex: 2, padding: "11px", borderRadius: 9, border: "none", background: malo ? "#aab3bd" : "#1a4fa0",
+            color: "#fff", cursor: malo ? "default" : "pointer", fontWeight: 800, fontSize: 13.5 }
+        }, ocupado ? "Guardando…" : "Registrar traslado"))));
+}
+
+// El saldo que el administrador LEE de la app del banco. No se calcula: es el ancla contra
+// la que se compara el teorico. La gaveta no pasa por aqui — su saldo real es el
+// arqueo, y tenerlo en dos sitios seria tener dos verdades.
+function ModalSaldoBanco({ fecha, cuenta, ocupado, onCerrar, onGuardar }) {
+  const E = React.createElement;
+  const [saldo, setSaldo] = React.useState("");
+  const [notas, setNotas] = React.useState("");
+  const v = saldo === "" ? null : (Number(saldo) || 0);
+  const teorico = Number(cuenta.saldo_final_teorico) || 0;
+  const dif = v == null ? null : v - teorico;
+
+  const inp = { width: "100%", padding: "9px 11px", borderRadius: 8, border: "1.5px solid #e0e4e8", fontSize: 13.5, boxSizing: "border-box" };
+  const lbl = { fontSize: 10.5, fontWeight: 700, color: "#5a6472", textTransform: "uppercase", display: "block", marginBottom: 4 };
+
+  return E("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000,
+    display: "flex", alignItems: "center", justifyContent: "center", padding: 16 } },
+    E("div", { style: { background: "#fff", borderRadius: 16, padding: 26, width: "100%", maxWidth: 440 } },
+      E("div", { style: { fontWeight: 800, fontSize: 17, marginBottom: 3 } }, "✍️ Saldo real de ", cuenta.nombre),
+      E("div", { style: { fontSize: 12, color: "#5a6472", marginBottom: 16, lineHeight: 1.5 } },
+        "Al cierre del ", fecha, ". Ábrela en la app del banco y escribe el saldo tal cual aparece."),
+
+      E("div", { style: { background: "#f8f9fa", border: "1.5px solid #e0e4e8", borderRadius: 9, padding: "10px 12px", marginBottom: 14, fontSize: 12.5 } },
+        E("div", { style: { display: "flex", justifyContent: "space-between" } },
+          E("span", { style: { color: "#5a6472" } }, "Según la app debería haber"),
+          E("span", { style: { fontWeight: 800 } }, RDc(teorico)))),
+
+      E("div", { style: { marginBottom: 12 } },
+        E("label", { style: lbl }, "Saldo real (RD$)"),
+        E("input", { type: "number", step: "0.01", value: saldo, autoFocus: true,
+          onChange: (e) => setSaldo(e.target.value), style: inp, placeholder: "0.00" })),
+
+      dif != null && E("div", { style: {
+        background: Math.abs(dif) < 0.005 ? "#e8f5ee" : "#fff7e6",
+        border: "1.5px solid " + (Math.abs(dif) < 0.005 ? "#1a6b3a" : "#d9a441"),
+        borderRadius: 9, padding: "10px 12px", marginBottom: 14, fontSize: 12.5
+      } },
+        E("div", { style: { display: "flex", justifyContent: "space-between", fontWeight: 800 } },
+          E("span", null, "Partidas pendientes"),
+          E("span", { style: { color: Math.abs(dif) < 0.005 ? "#1a6b3a" : "#b8860b" } }, (dif > 0 ? "+" : "") + RDc(dif))),
+        Math.abs(dif) >= 0.005 && E("div", { style: { fontSize: 11, color: "#92400e", marginTop: 5, lineHeight: 1.45 } },
+          "Normal: tarjetas que el banco aún no deposita, cargos del banco o cheques sin cobrar. Anótalo abajo si ya sabes qué es.")),
+
+      E("div", { style: { marginBottom: 18 } },
+        E("label", { style: lbl }, "Notas"),
+        E("input", { value: notas, onChange: (e) => setNotas(e.target.value), style: inp,
+          placeholder: "Faltan las tarjetas del viernes" })),
+
+      E("div", { style: { display: "flex", gap: 10 } },
+        E("button", { onClick: onCerrar, disabled: ocupado,
+          style: { flex: 1, padding: "11px", borderRadius: 9, border: "1.5px solid #e0e4e8", background: "#f8f9fa", cursor: "pointer", fontWeight: 700, fontSize: 13.5 } }, "Cancelar"),
+        E("button", { onClick: () => onGuardar(Number(v.toFixed(2)), notas), disabled: ocupado || v == null,
+          style: { flex: 2, padding: "11px", borderRadius: 9, border: "none", background: v == null ? "#aab3bd" : "#1a6b3a",
+            color: "#fff", cursor: v == null ? "default" : "pointer", fontWeight: 800, fontSize: 13.5 } },
+          ocupado ? "Guardando…" : "Guardar saldo"))));
+}
+
+// El dia a dia: abrir caja, ver el libro movimiento a movimiento, anotar lo que
+// no es ni venta ni gasto, y cerrar contando el efectivo de la gaveta.
+function CajaDia() {
+  const E = React.createElement;
+  const C = { verde: "#1a6b3a", azul: "#1a4fa0", grisd: "#5a6472", rojo: "#c0392b",
+              gold: "#b8860b", borde: "#e0e4e8" };
+  const METODOS = ["EFECTIVO", "TRANSFERENCIA", "TARJETA", "TARJETA EMPRESA", "CHEQUE"];
+
+  const [fecha, setFecha] = React.useState(hoy());
+  const [libro, setLibro] = React.useState([]);
+  const [dia, setDia] = React.useState(null);        // fila de pc_caja_dia
+  const [resumen, setResumen] = React.useState(null);
+  const [cargando, setCargando] = React.useState(true);
+  const [error, setError] = React.useState("");
+  const [guardando, setGuardando] = React.useState(false);
+  const [filtroMetodo, setFiltroMetodo] = React.useState("");
+  const [filtroCategoria, setFiltroCategoria] = React.useState("");
+  const [modal, setModal] = React.useState("");       // "abrir" | "movimiento" | "cerrar"
+
+  const cargar = React.useCallback(async () => {
+    setCargando(true);
+    try {
+      const [mov, d, r] = await Promise.all([
+        supaFetch("pc_caja_libro", "GET", null, "?fecha=eq." + fecha + "&order=fecha_hora.asc&limit=1000"),
+        supaFetch("pc_caja_dia", "GET", null, "?fecha=eq." + fecha),
+        supaRpc("pc_caja_resumen", { p_fecha: fecha })
+      ]);
+      setLibro(Array.isArray(mov) ? mov : []);
+      setDia(Array.isArray(d) && d.length ? d[0] : null);
+      setResumen(Array.isArray(r) && r.length ? r[0] : null);
+      setError("");
+    } catch (e) {
+      setError("No se pudo cargar la caja: " + e.message);
+    }
+    setCargando(false);
+  }, [fecha]);
+  React.useEffect(() => { cargar(); }, [cargar]);
+
+  const abierta = dia && dia.estado === "abierta";
+  const cerrada = dia && dia.estado === "cerrada";
+  const num = (x) => Number(x) || 0;
+
+  // El saldo acumulado (la 8ª columna) se calcula al leer, no se guarda: depende
+  // del rango y del orden que se este mirando.
+  const filas = React.useMemo(() => {
+    let saldo = num(resumen && resumen.saldo_inicial);
+    return (libro || [])
+      .filter((m) => !filtroMetodo || m.metodo_pago === filtroMetodo)
+      .filter((m) => !filtroCategoria || m.categoria === filtroCategoria)
+      .map((m) => {
+        saldo += num(m.entrada) - num(m.salida);
+        return { ...m, saldo };
+      });
+  }, [libro, resumen, filtroMetodo, filtroCategoria]);
+
+  const porMetodo = React.useMemo(() => {
+    const g = {};
+    (libro || []).forEach((m) => {
+      const k = m.metodo_pago || "SIN ANOTAR";
+      if (!g[k]) g[k] = { entrada: 0, salida: 0 };
+      g[k].entrada += num(m.entrada); g[k].salida += num(m.salida);
+    });
+    return Object.entries(g).sort((a, b) => (b[1].entrada - b[1].salida) - (a[1].entrada - a[1].salida));
+  }, [libro]);
+
+  const porCategoria = React.useMemo(() => {
+    const g = {};
+    (libro || []).forEach((m) => {
+      const k = m.categoria || "Sin categoría";
+      if (!g[k]) g[k] = { entrada: 0, salida: 0 };
+      g[k].entrada += num(m.entrada); g[k].salida += num(m.salida);
+    });
+    return Object.entries(g).sort((a, b) => (b[1].entrada + b[1].salida) - (a[1].entrada + a[1].salida));
+  }, [libro]);
+
+  // ── Acciones ──────────────────────────────────────────────────────────────
+  async function abrirDia(saldoInicial) {
+    setGuardando(true);
+    try {
+      await supaRpc("caja_abrir_dia", { p_fecha: fecha, p_saldo_inicial: saldoInicial });
+      avisar("Caja del " + fecha + " abierta con " + RDc(saldoInicial) + ".", "ok");
+      setModal(""); cargar();
+    } catch (e) { avisar("No se pudo abrir la caja: " + e.message, "error"); }
+    setGuardando(false);
+  }
+
+  async function registrarMovimiento(m) {
+    setGuardando(true);
+    try {
+      await supaRpc("caja_registrar_movimiento", { p_mov: {
+        fecha, hora: m.hora || null, tipo: m.tipo, concepto: m.concepto,
+        categoria: m.categoria || null, metodo_pago: m.metodo_pago,
+        referencia: m.referencia || null, monto: m.monto
+      } });
+      avisar((m.tipo === "ENTRADA" ? "Entrada" : "Salida") + " de " + RDc(m.monto) + " registrada.", "ok");
+      setModal(""); cargar();
+    } catch (e) { avisar("No se pudo registrar: " + e.message, "error"); }
+    setGuardando(false);
+  }
+
+  async function cerrarDia(contado, notas) {
+    setGuardando(true);
+    try {
+      // Se guarda la FOTO del momento del cierre, no un calculo que se rehaga.
+      // El servidor calcula el teorico en ese instante; la pantalla solo manda
+      // lo que se conto.
+      const r = await supaRpc("caja_cerrar_dia", { p_fecha: fecha, p_efectivo_contado: contado, p_notas: notas || null });
+      const dif = num(r && r.diferencia);
+      avisar(Math.abs(dif) < 0.005
+        ? "Caja cerrada y cuadrada exacta."
+        : "Caja cerrada con " + (dif > 0 ? "SOBRANTE" : "FALTANTE") + " de " + RDc(Math.abs(dif)) + ".",
+        Math.abs(dif) < 0.005 ? "ok" : "aviso");
+      setModal(""); cargar();
+    } catch (e) { avisar("No se pudo cerrar la caja: " + e.message, "error"); }
+    setGuardando(false);
+  }
+
+  async function reabrir() {
+    if (!confirm("¿Reabrir la caja del " + fecha + "?\n\nEl arqueo guardado se conserva, pero el día vuelve a aceptar movimientos.")) return;
+    setGuardando(true);
+    try {
+      await supaRpc("caja_reabrir_dia", { p_fecha: fecha });
+      avisar("Caja reabierta.", "ok"); cargar();
+    } catch (e) { avisar("No se pudo reabrir: " + e.message, "error"); }
+    setGuardando(false);
+  }
+
+  function exportarCSV() {
+    const cab = ["Fecha y hora", "Referencia", "Concepto", "Categoría", "Método de pago", "Entrada", "Salida", "Saldo acumulado"];
+    const esc = (s) => '"' + String(s == null ? "" : s).replace(/"/g, '""') + '"';
+    const csv = [cab.map(esc).join(",")].concat(filas.map((m) => [
+      m.fecha_hora ? String(m.fecha_hora).replace("T", " ").slice(0, 16) : m.fecha,
+      m.referencia, m.concepto, m.categoria, m.metodo_pago,
+      num(m.entrada).toFixed(2), num(m.salida).toFixed(2), m.saldo.toFixed(2)
+    ].map(esc).join(","))).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" }));
+    a.download = "libro_caja_" + fecha + ".csv"; a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  // ── Pintado ───────────────────────────────────────────────────────────────
+  const tarjeta = (titulo, valor, color, nota) => E("div", { style: {
+    background: "#fff", border: "1.5px solid " + C.borde, borderRadius: 11, padding: "13px 15px", flex: "1 1 150px", minWidth: 140
+  } },
+    E("div", { style: { fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: C.grisd, marginBottom: 5 } }, titulo),
+    E("div", { style: { fontSize: 19, fontWeight: 800, color: color || "#1a1d23" } }, valor),
+    nota && E("div", { style: { fontSize: 11, color: C.grisd, marginTop: 3 } }, nota));
+
+  const btn = (fondo, color, borde) => ({
+    background: fondo, color, border: "1.5px solid " + (borde || fondo), borderRadius: 9,
+    padding: "9px 16px", cursor: "pointer", fontSize: 13, fontWeight: 700
+  });
+  const th = { padding: "9px 10px", textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, color: "#fff" };
+  const td = { padding: "8px 10px", fontSize: 12.5, borderBottom: "1px solid #f0f2f4" };
+
+  const dif = dia && dia.diferencia != null ? num(dia.diferencia) : null;
+
+  return E("div", null,
+    E("div", { style: { display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 16 } },
+      E("div", null,
+        E("label", { style: { fontSize: 10.5, fontWeight: 700, color: C.grisd, textTransform: "uppercase", display: "block", marginBottom: 4 } }, "Día"),
+        E("input", { type: "date", value: fecha, onChange: (e) => setFecha(e.target.value),
+          style: { padding: "8px 11px", borderRadius: 8, border: "1.5px solid " + C.borde, fontSize: 13 } })),
+      E("div", { style: {
+        padding: "7px 14px", borderRadius: 20, fontSize: 12, fontWeight: 800,
+        background: cerrada ? "#fdeaea" : abierta ? "#e6f4ec" : "#f4f5f6",
+        color: cerrada ? C.rojo : abierta ? C.verde : C.grisd
+      } }, cerrada ? "🔒 Cerrada" : abierta ? "🔓 Abierta" : "Sin abrir"),
+      !dia && E("button", { onClick: () => setModal("abrir"), style: btn(C.verde, "#fff") }, "Abrir el día"),
+      abierta && E("button", { onClick: () => setModal("movimiento"), style: btn(C.azul, "#fff") }, "＋ Movimiento"),
+      abierta && E("button", { onClick: () => setModal("cerrar"), style: btn("#fff", C.rojo, "#f3c4c4") }, "Cerrar y arquear"),
+      cerrada && E("button", { onClick: reabrir, style: btn("#fff", "#334155", C.borde) }, "Reabrir"),
+      E("button", { onClick: exportarCSV, style: btn("#fff", "#334155", C.borde) }, "⬇ CSV"),
+      E("button", { onClick: () => window.print(), style: btn("#fff", "#334155", C.borde) }, "🖨 Imprimir")),
+
+    error && E("div", { style: { background: "#fdeaea", border: "1.5px solid " + C.rojo, color: C.rojo, borderRadius: 9, padding: "11px 13px", fontSize: 13, marginBottom: 14, fontWeight: 600 } }, error),
+
+    cargando ? E("div", { style: { color: C.grisd, padding: "28px 0" } }, "Cargando…") : E(React.Fragment, null,
+      E("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 } },
+        tarjeta("Saldo inicial", RDc(resumen && resumen.saldo_inicial), null, dia ? null : "aún sin abrir"),
+        tarjeta("Entradas en efectivo", RDc(resumen && resumen.entradas_efectivo), C.verde),
+        tarjeta("Salidas en efectivo", RDc(resumen && resumen.salidas_efectivo), C.rojo),
+        tarjeta("Efectivo que debe haber", RDc(resumen && resumen.teorico_efectivo), C.azul, "saldo inicial + entradas − salidas"),
+        cerrada && tarjeta("Efectivo contado", RDc(dia.efectivo_contado), null, dia.cerrada_por || ""),
+        cerrada && dif != null && tarjeta(
+          Math.abs(dif) < 0.005 ? "Cuadre" : dif > 0 ? "Sobrante" : "Faltante",
+          Math.abs(dif) < 0.005 ? "Exacto" : RDc(Math.abs(dif)),
+          Math.abs(dif) < 0.005 ? C.verde : dif > 0 ? C.gold : C.rojo)),
+
+      // El arqueo guardado es una foto. Si el dato de hoy ya no coincide, eso
+      // es informacion (alguien corrigio una venta despues de cerrar), no un error.
+      cerrada && resumen && dia.teorico_efectivo != null &&
+        Math.abs(num(dia.teorico_efectivo) - num(resumen.teorico_efectivo)) > 0.005 &&
+        E("div", { style: { background: "#fff7e6", border: "1.5px solid #d9a441", color: "#92400e", borderRadius: 9, padding: "11px 13px", fontSize: 12.5, marginBottom: 14 } },
+          "Al cerrar, el efectivo teórico era " + RDc(dia.teorico_efectivo) + ". Hoy el mismo día calcula " +
+          RDc(resumen.teorico_efectivo) + " — alguien corrigió un movimiento después del cierre. El arqueo conserva lo que se contó esa noche."),
+
+      E("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 } },
+        E("span", { style: { fontSize: 12, color: C.grisd, fontWeight: 600 } }, "Filtrar:"),
+        E("select", { value: filtroMetodo, onChange: (e) => setFiltroMetodo(e.target.value),
+          style: { padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.borde, fontSize: 12.5 } },
+          E("option", { value: "" }, "Todos los métodos"),
+          porMetodo.map(([m]) => E("option", { key: m, value: m }, m))),
+        E("select", { value: filtroCategoria, onChange: (e) => setFiltroCategoria(e.target.value),
+          style: { padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.borde, fontSize: 12.5 } },
+          E("option", { value: "" }, "Todas las categorías"),
+          porCategoria.map(([k]) => E("option", { key: k, value: k }, k))),
+        (filtroMetodo || filtroCategoria) && E("button", {
+          onClick: () => { setFiltroMetodo(""); setFiltroCategoria(""); }, style: btn("#fff", "#334155", C.borde)
+        }, "Quitar filtros"),
+        E("span", { style: { fontSize: 12, color: C.grisd, marginLeft: "auto" } }, filas.length + " movimiento(s)")),
+
+      E("div", { style: { overflowX: "auto", border: "1.5px solid " + C.borde, borderRadius: 11, marginBottom: 18 } },
+        E("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 860 } },
+          E("thead", null, E("tr", { style: { background: C.verde } },
+            E("th", { style: th }, "Fecha y hora"), E("th", { style: th }, "Referencia"),
+            E("th", { style: th }, "Concepto"), E("th", { style: th }, "Categoría"),
+            E("th", { style: th }, "Método"),
+            E("th", { style: { ...th, textAlign: "right" } }, "Entrada"),
+            E("th", { style: { ...th, textAlign: "right" } }, "Salida"),
+            E("th", { style: { ...th, textAlign: "right" } }, "Saldo"))),
+          E("tbody", null,
+            filas.length === 0
+              ? E("tr", null, E("td", { colSpan: 8, style: { ...td, textAlign: "center", color: C.grisd, padding: 24 } },
+                  "Sin movimientos ese día."))
+              : filas.map((m, i) => E("tr", { key: m.id, style: { background: i % 2 ? "#fafbfc" : "#fff" } },
+                  E("td", { style: td }, m.fecha_hora ? String(m.fecha_hora).replace("T", " ").slice(0, 16) : m.fecha),
+                  E("td", { style: { ...td, color: C.grisd, fontSize: 11.5 } }, m.referencia || "—"),
+                  E("td", { style: td }, m.concepto),
+                  E("td", { style: { ...td, color: C.grisd } }, m.categoria),
+                  E("td", { style: { ...td, fontSize: 11.5 } }, m.metodo_pago + (m.banco ? " · " + m.banco : "")),
+                  E("td", { style: { ...td, textAlign: "right", color: C.verde, fontWeight: num(m.entrada) ? 700 : 400 } },
+                    num(m.entrada) ? RDc(m.entrada) : "—"),
+                  E("td", { style: { ...td, textAlign: "right", color: C.rojo, fontWeight: num(m.salida) ? 700 : 400 } },
+                    num(m.salida) ? RDc(m.salida) : "—"),
+                  E("td", { style: { ...td, textAlign: "right", fontWeight: 700 } }, RDc(m.saldo))))))),
+
+      E("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(290px, 1fr))", gap: 14 } },
+        E(Card, null,
+          E("div", { style: { fontWeight: 800, fontSize: 14, marginBottom: 10 } }, "Por método de pago"),
+          porMetodo.length === 0 ? E("div", { style: { color: C.grisd, fontSize: 12.5 } }, "Sin movimientos.")
+          : porMetodo.map(([m, v]) => E("div", { key: m, style: { display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, borderBottom: "1px solid #f0f2f4" } },
+              E("span", null, m),
+              E("span", { style: { fontWeight: 700 } },
+                RDc(v.entrada - v.salida),
+                v.salida > 0 && E("span", { style: { color: C.grisd, fontWeight: 400, fontSize: 11 } }, "  (−" + RDc(v.salida) + ")"))))),
+        E(Card, null,
+          E("div", { style: { fontWeight: 800, fontSize: 14, marginBottom: 10 } }, "Por categoría"),
+          porCategoria.length === 0 ? E("div", { style: { color: C.grisd, fontSize: 12.5 } }, "Sin movimientos.")
+          : porCategoria.slice(0, 12).map(([k, v]) => E("div", { key: k, style: { display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, borderBottom: "1px solid #f0f2f4" } },
+              E("span", null, k),
+              E("span", { style: { fontWeight: 700, color: v.entrada >= v.salida ? C.verde : C.rojo } },
+                RDc(v.entrada - v.salida))))))),
+
+    modal === "abrir" && E(ModalAbrirCaja, {
+      fecha, ocupado: guardando, onCerrar: () => setModal(""), onAbrir: abrirDia
+    }),
+    modal === "movimiento" && E(ModalMovimientoCaja, {
+      fecha, metodos: METODOS, ocupado: guardando, onCerrar: () => setModal(""), onGuardar: registrarMovimiento
+    }),
+    modal === "cerrar" && E(ModalArqueo, {
+      fecha, resumen, ocupado: guardando, onCerrar: () => setModal(""), onCerrarCaja: cerrarDia
+    }));
+}
+
+// Abrir el día. El saldo inicial se sugiere con el efectivo contado al cerrar
+// el día anterior: si se teclea de memoria, el descuadre del primer día ya nace
+// mal y se arrastra.
+function ModalAbrirCaja({ fecha, ocupado, onAbrir, onCerrar }) {
+  const E = React.createElement;
+  const [saldo, setSaldo] = React.useState("");
+  const [sugerido, setSugerido] = React.useState(null);
+  React.useEffect(() => {
+    supaFetch("pc_caja_dia", "GET", null, "?fecha=lt." + fecha + "&estado=eq.cerrada&order=fecha.desc&limit=1")
+      .then((r) => {
+        if (Array.isArray(r) && r.length && r[0].efectivo_contado != null) {
+          setSugerido({ monto: Number(r[0].efectivo_contado), fecha: r[0].fecha });
+          setSaldo(String(r[0].efectivo_contado));
+        }
+      }).catch(() => {});
+  }, [fecha]);
+  return E(ModalCaja, { titulo: "🔓 Abrir la caja del " + fecha, onCerrar },
+    E("label", { style: ModalCaja.lbl }, "Saldo inicial en efectivo (RD$)"),
+    E("input", { type: "number", step: "0.01", min: "0", autoFocus: true, value: saldo,
+      onChange: (e) => setSaldo(e.target.value), placeholder: "0.00", style: ModalCaja.inp }),
+    sugerido
+      ? E("div", { style: { fontSize: 12, color: "#5a6472", marginTop: 7 } },
+          "Sugerido: lo que se contó al cerrar el " + sugerido.fecha + " (" + RDc(sugerido.monto) + ").")
+      : E("div", { style: { fontSize: 12, color: "#92400e", marginTop: 7 } },
+          "No hay un cierre anterior con efectivo contado, así que no hay nada que sugerir. Cuenta la gaveta antes de escribir el monto."),
+    E("div", { style: ModalCaja.pie },
+      E("button", { onClick: onCerrar, disabled: ocupado, style: ModalCaja.btnGris }, "Cancelar"),
+      E("button", {
+        onClick: () => {
+          const n = parseFloat(saldo);
+          if (!Number.isFinite(n) || n < 0) { avisar("Escribe el efectivo con el que abre la caja."); return; }
+          onAbrir(Number(n.toFixed(2)));
+        },
+        disabled: ocupado, style: ModalCaja.btnVerde
+      }, ocupado ? "Abriendo…" : "Abrir caja")));
+}
+
+// Un movimiento que no es ni venta ni gasto: retiro al banco, aporte del dueño,
+// caja chica. Las ventas y los gastos se siguen registrando donde siempre.
+function ModalMovimientoCaja({ fecha, metodos, ocupado, onGuardar, onCerrar }) {
+  const E = React.createElement;
+  const CATEGORIAS = ["Caja chica", "Retiro al banco", "Aporte del dueño", "Proveedores",
+                      "Servicios", "Nómina", "Impuestos", "Ajuste", "Otro"];
+  const [f, setF] = React.useState({
+    tipo: "SALIDA", concepto: "", categoria: CATEGORIAS[0], metodo_pago: "EFECTIVO",
+    referencia: "", monto: "", hora: new Date().toTimeString().slice(0, 5)
+  });
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  return E(ModalCaja, { titulo: "Movimiento de caja · " + fecha, onCerrar },
+    E("div", { style: { fontSize: 12, color: "#5a6472", marginBottom: 12, lineHeight: 1.5 } },
+      "Para lo que no es una venta ni un gasto registrado: sacar efectivo para el banco, caja chica, un aporte. Las ventas se registran en Ventas y los gastos en Gastos."),
+    E("div", { style: { display: "flex", gap: 8, marginBottom: 12 } },
+      [["ENTRADA", "➕ Entra dinero"], ["SALIDA", "➖ Sale dinero"]].map(([id, txt]) =>
+        E("button", { key: id, onClick: () => set("tipo", id), style: {
+          flex: 1, padding: "9px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+          border: "1.5px solid " + (f.tipo === id ? "#1a6b3a" : "#e0e4e8"),
+          background: f.tipo === id ? "#1a6b3a" : "#fff", color: f.tipo === id ? "#fff" : "#334155"
+        } }, txt))),
+    E("label", { style: ModalCaja.lbl }, "Concepto"),
+    E("input", { value: f.concepto, autoFocus: true, placeholder: "Ej: depósito en el banco",
+      onChange: (e) => set("concepto", e.target.value), style: ModalCaja.inp }),
+    E("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 } },
+      E("div", null, E("label", { style: ModalCaja.lbl }, "Monto (RD$)"),
+        E("input", { type: "number", step: "0.01", min: "0.01", value: f.monto, placeholder: "0.00",
+          onChange: (e) => set("monto", e.target.value), style: ModalCaja.inp })),
+      E("div", null, E("label", { style: ModalCaja.lbl }, "Hora"),
+        E("input", { type: "time", value: f.hora, onChange: (e) => set("hora", e.target.value), style: ModalCaja.inp })),
+      E("div", null, E("label", { style: ModalCaja.lbl }, "Categoría"),
+        E("select", { value: f.categoria, onChange: (e) => set("categoria", e.target.value), style: ModalCaja.inp },
+          CATEGORIAS.map((c) => E("option", { key: c }, c)))),
+      E("div", null, E("label", { style: ModalCaja.lbl }, "Método de pago"),
+        E("select", { value: f.metodo_pago, onChange: (e) => set("metodo_pago", e.target.value), style: ModalCaja.inp },
+          metodos.map((m) => E("option", { key: m }, m))))),
+    E("div", { style: { marginTop: 10 } },
+      E("label", { style: ModalCaja.lbl }, "Comprobante / referencia (opcional)"),
+      E("input", { value: f.referencia, placeholder: "Nº de recibo, NCF o referencia bancaria",
+        onChange: (e) => set("referencia", e.target.value), style: ModalCaja.inp })),
+    E("div", { style: ModalCaja.pie },
+      E("button", { onClick: onCerrar, disabled: ocupado, style: ModalCaja.btnGris }, "Cancelar"),
+      E("button", {
+        onClick: () => {
+          const n = parseFloat(f.monto);
+          if (!f.concepto.trim()) { avisar("Escribe el concepto del movimiento."); return; }
+          if (!Number.isFinite(n) || n <= 0) { avisar("El monto tiene que ser mayor que cero."); return; }
+          onGuardar({ ...f, concepto: f.concepto.trim(), monto: Number(n.toFixed(2)) });
+        },
+        disabled: ocupado, style: ModalCaja.btnVerde
+      }, ocupado ? "Guardando…" : "Registrar")));
+}
+
+// El arqueo: se cuenta la gaveta y el sistema dice si sobra o falta.
+function ModalArqueo({ fecha, resumen, ocupado, onCerrarCaja, onCerrar }) {
+  const E = React.createElement;
+  const [contado, setContado] = React.useState("");
+  const [notas, setNotas] = React.useState("");
+  const teorico = Number((resumen && resumen.teorico_efectivo) || 0);
+  const n = parseFloat(contado);
+  const dif = Number.isFinite(n) ? n - teorico : null;
+  return E(ModalCaja, { titulo: "Cerrar y arquear · " + fecha, onCerrar },
+    E("div", { style: { background: "#f8f9fa", borderRadius: 10, padding: 13, marginBottom: 14, fontSize: 12.5 } },
+      [["Saldo inicial", resumen && resumen.saldo_inicial],
+       ["Entradas en efectivo", resumen && resumen.entradas_efectivo],
+       ["Salidas en efectivo", resumen && resumen.salidas_efectivo]].map(([k, v]) =>
+        E("div", { key: k, style: { display: "flex", justifyContent: "space-between", padding: "3px 0" } },
+          E("span", { style: { color: "#5a6472" } }, k), E("span", null, RDc(v)))),
+      E("div", { style: { display: "flex", justifyContent: "space-between", padding: "8px 0 0", marginTop: 6, borderTop: "1.5px solid #e0e4e8", fontWeight: 800 } },
+        E("span", null, "Debe haber en la gaveta"), E("span", null, RDc(teorico)))),
+    E("label", { style: ModalCaja.lbl }, "Efectivo contado (RD$)"),
+    E("input", { type: "number", step: "0.01", min: "0", autoFocus: true, value: contado,
+      onChange: (e) => setContado(e.target.value), placeholder: "0.00", style: ModalCaja.inp }),
+    dif != null && E("div", { style: {
+      marginTop: 10, borderRadius: 9, padding: "11px 13px", fontSize: 13, fontWeight: 700,
+      background: Math.abs(dif) < 0.005 ? "#e6f4ec" : dif > 0 ? "#fff7e6" : "#fdeaea",
+      color: Math.abs(dif) < 0.005 ? "#1a6b3a" : dif > 0 ? "#92400e" : "#c0392b"
+    } }, Math.abs(dif) < 0.005 ? "✅ Cuadra exacto."
+        : dif > 0 ? "Sobran " + RDc(dif) + " en la gaveta."
+                  : "Faltan " + RDc(Math.abs(dif)) + " en la gaveta."),
+    E("div", { style: { marginTop: 10 } },
+      E("label", { style: ModalCaja.lbl }, "Observaciones" + (dif != null && Math.abs(dif) >= 0.005 ? " (explica el descuadre)" : " (opcional)")),
+      E("textarea", { value: notas, rows: 2, onChange: (e) => setNotas(e.target.value),
+        placeholder: "Ej: faltó el vuelto de una venta", style: { ...ModalCaja.inp, resize: "vertical" } })),
+    E("div", { style: ModalCaja.pie },
+      E("button", { onClick: onCerrar, disabled: ocupado, style: ModalCaja.btnGris }, "Cancelar"),
+      E("button", {
+        onClick: () => {
+          if (!Number.isFinite(n) || n < 0) { avisar("Escribe el efectivo que contaste."); return; }
+          // Un descuadre sin explicacion es justo el que nadie recuerda al mes
+          // siguiente, cuando hace falta entender que paso.
+          if (Math.abs(n - teorico) >= 0.005 && !notas.trim()) {
+            avisar("Hay un descuadre: escribe una observación explicando qué pasó.", "error"); return;
+          }
+          onCerrarCaja(Number(n.toFixed(2)), notas.trim());
+        },
+        disabled: ocupado, style: ModalCaja.btnVerde
+      }, ocupado ? "Cerrando…" : "Cerrar caja")));
+}
+
+// Envoltorio comun de los tres modales de caja.
+function ModalCaja({ titulo, onCerrar, children }) {
+  const E = React.createElement;
+  return E("div", { onClick: onCerrar, style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 20 } },
+    E("div", { onClick: (e) => e.stopPropagation(), style: { background: "#fff", borderRadius: 16, padding: 24, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", textAlign: "left" } },
+      E("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 } },
+        E("div", { style: { fontWeight: 800, fontSize: 17 } }, titulo),
+        E("button", { onClick: onCerrar, style: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#9ca3af" } }, "✕")),
+      children));
+}
+ModalCaja.inp = { width: "100%", padding: "9px 11px", borderRadius: 8, border: "1.5px solid #e0e4e8", fontSize: 14, boxSizing: "border-box" };
+ModalCaja.lbl = { fontSize: 10.5, fontWeight: 700, color: "#5a6472", textTransform: "uppercase", display: "block", marginBottom: 4 };
+ModalCaja.pie = { display: "flex", gap: 8, marginTop: 18 };
+ModalCaja.btnGris = { flex: 1, padding: "10px", borderRadius: 9, border: "1.5px solid #e0e4e8", background: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" };
+ModalCaja.btnVerde = { flex: 2, padding: "10px", borderRadius: 9, border: "none", background: "#1a6b3a", color: "#fff", fontSize: 13, fontWeight: 800, cursor: "pointer" };
 
 // ─── FECHAS EN EL FUTURO ────────────────────────────────────────────────────
 // Una venta no puede estar fechada mañana. Casi siempre es un dedo al teclear

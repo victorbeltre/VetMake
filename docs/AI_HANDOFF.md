@@ -45,9 +45,43 @@ el historial remoto de Supabase son la fuente de verdad.
        `crear_factura`): llama la RPC y hace `refetch`.
      - `guardar_secuencia_ncf(p_secuencia)`: solo admin; si el rango incluye
        números ya emitidos continúa donde iba y rechaza cualquier solapamiento.
+  4. **Caja diaria y cuentas** (M18/M19/M20 de PetColinas): la pestaña Caja
+     reemplaza el `CierreCaja` viejo por cinco modos (Día, Semana, Mes, Rango y
+     Cuentas). Incluye el arqueo con saldo inicial y efectivo contado,
+     movimientos que no son venta ni gasto, el reporte de periodo con el
+     desglose «dónde cayó el dinero», cuentas, traslados (la comisión de
+     tarjeta se mide, no se estima) y saldos de banco declarados.
+     - El libro (`pc_caja_libro`) es una VISTA sobre ventas, abonos, gastos y
+       movimientos; excluye ventas y gastos anulados, ventas pendientes o sin
+       cobro y gastos «pendiente de pago».
+     - Los bancos ya no están escritos en el código: cada clínica los da de
+       alta en «🏦 Bancos de la clínica» con palabras clave (`alias`) que se
+       buscan en la forma de pago. Con UN banco activo, una transferencia sin
+       banco anotado cae en él; con dos o más va a «Sin asignar».
+     - Cada clínica nace con gaveta, tarjetas por liquidar, tarjeta de crédito
+       de la empresa (CREDITO) y sin asignar (trigger en `negocios` + backfill).
+     - Todo se escribe por RPC: `caja_abrir_dia`, `caja_cerrar_dia` (el
+       servidor calcula el teórico de la foto), `caja_reabrir_dia` (solo
+       admin), `caja_registrar_movimiento` (rechaza días cerrados),
+       `cuentas_guardar`, `cuentas_registrar_traslado`, `cuentas_declarar_saldo`
+       (solo admin). Lecturas agregadas: `pc_caja_resumen`, `pc_caja_reporte`
+       (misma firma de 4 argumentos que PetColinas), `pc_cuentas_estado`.
+     - Gastos: las opciones de método dejan de incluir «Reservas» (de
+       PetColinas) y suman «Tarjeta de crédito de la empresa», «Cheque» y
+       «Pendiente de pago».
 - Archivos principales: `index.html`, `scripts/validate.mjs`,
   `supabase/migrations/20261023180000_resultados_laboratorio.sql`,
-  `supabase/migrations/20261023190000_comprobantes_fiscales_ncf.sql`.
+  `supabase/migrations/20261023190000_comprobantes_fiscales_ncf.sql`,
+  `supabase/migrations/20261023200000_caja_diaria_y_cuentas.sql`.
+- Caja en Supabase (aplicado y registrado como `20261023200000
+  caja_diaria_y_cuentas`): `pc_cuentas`, `pc_caja_dia`, `pc_caja_movimientos`,
+  `pc_traslados`, `pc_cuenta_saldos` con `negocio_id` en la clave, RLS solo de
+  lectura (caja y movimientos: admin/caja/veterinario; cuentas, traslados y
+  saldos: admin) y sin DML para `authenticated`. Vistas `pc_caja_libro`,
+  `pc_cuenta_libro`, `pc_cuenta_declarado` con `security_invoker`. Las
+  funciones `SECURITY DEFINER` viven en `private` y filtran a mano por
+  `private.caja_contexto()` (dentro de ellas la RLS no aplica). El groomer no
+  usa la caja: solo ve sus propias ventas y su libro saldría incompleto.
 - NCF en Supabase (aplicado y registrado como `20261023190000
   comprobantes_fiscales_ncf`): `pc_ncf_secuencias` con clave `(negocio_id,
   tipo)`, solo SELECT por RLS; `pc_facturas` gana `ncf`, `ncftipo`,
@@ -60,8 +94,8 @@ el historial remoto de Supabase son la fuente de verdad.
   `laboratorios` con políticas que exigen la carpeta `<negocio_id>/`.
 - Pruebas ejecutadas:
   - `node scripts/validate.mjs`: OK. Ahora espera 40 migraciones y falla si
-    reaparece `ocrLab`, `parsearFilasLab`, `tesseract`, etc.; con NCF espera
-    41 migraciones y 23 RPC declaradas (comprobado
+    reaparece `ocrLab`, `parsearFilasLab`, `tesseract`, etc.; con NCF y caja
+    espera 42 migraciones y 33 RPC declaradas (comprobado
     inyectando `ocrLab`).
   - SQL reversible con dos clínicas (Clínica de Prueba B y PetLand): B ve su
     fila; PetLand ve 0; insertar con el `negocio_id` ajeno da 42501; subir a la
@@ -80,6 +114,22 @@ el historial remoto de Supabase son la fuente de verdad.
   - NCF, Playwright con Supabase simulado: `RangosNCF` lista y registra (llama
     `guardar_secuencia_ncf` con los argumentos correctos), `ModalNCF` devuelve
     tipo y RNC, y el PDF lleva RNC de la clínica, NCF, tipo y RNC del cliente.
+  - Caja, SQL reversible con ventas, abono, gastos y movimiento de prueba en
+    Clínica de Prueba B y PetLand: efectivo 1.400 entradas / 300 salidas,
+    teórico 1.600; tras depositar 1.000 en el banco el teórico baja a 600 y el
+    flujo del negocio no cambia (4.900 / 1.000); cierre con 590 da −10; no se
+    puede registrar en un día cerrado; «Transferencia BHD» cae en la cuenta con
+    alias `bhd`; liquidación POS 1.500 → 1.447,50 deja tarjetas en 0 y la
+    comisión en 52,50; venta anulada, venta pendiente y gasto pendiente no
+    entran. PetLand solo ve su venta y no puede usar cuentas de B; un usuario
+    con rol caja recibe totales correctos, `por_cuenta` nulo y «No autorizado»
+    en cuentas y al reabrir. `ROLLBACK` completo; `get_advisors(security)` sin
+    hallazgos nuevos (`pc_cuenta_de` pasó a envoltorio invoker sobre
+    `private.cuenta_de_impl` por el aviso de SECURITY DEFINER expuesto).
+  - Caja, Playwright con Supabase simulado: los cinco modos se dibujan sin
+    errores; cerrar manda `caja_cerrar_dia` solo con lo contado; agregar banco
+    manda `cuentas_guardar` con sus palabras clave; el traslado propone el banco
+    de la clínica como destino.
 - Riesgos o pendientes:
   - NCF: editar una factura derivada de ventas (`venta_...`) que ya tiene NCF
     pasa por el flujo heredado de `setFacturas`, que intenta `crear_factura`
@@ -89,15 +139,17 @@ el historial remoto de Supabase son la fuente de verdad.
   - NCF: falta la nota de crédito (B04) para anular una factura con NCF, el
     reporte 607 desde la app y la facturación electrónica (e-CF), que la DGII
     va haciendo obligatoria por etapas.
-  - `generar_respaldo_negocio_impl` no incluye todavía `pc_ncf_secuencias` ni
-    `pc_lab_resultados`.
+  - `generar_respaldo_negocio_impl` no incluye todavía `pc_ncf_secuencias`,
+    `pc_lab_resultados` ni las tablas de caja y cuentas.
+  - Caja: un gasto pagado por «Transferencia» en una clínica con dos o más
+    bancos cae en «Sin asignar»; el formulario de gastos todavía no pregunta el
+    banco. Un gasto «pendiente de pago» entra al libro con la fecha del gasto
+    cuando se le pone el método real (pc_gastos guarda una sola fecha).
   - No se probó el flujo con sesión real (faltan credenciales de prueba por rol).
   - `vetmake-dev` está ACTIVO otra vez (se restauró el 2026-10-23).
   - El proyecto `vetmake-dev` contiene tablas `fit13_*` de otra aplicación
     (migraciones `fit13_init` del 26 sep). No son de VetMake; conviene moverlas.
-  - Quedan por traer de PetColinas: caja diaria y cuentas (M18/M19), gastos
-    con «pagado por» y tarjeta empresarial (M20) y el menú lateral. Caja y cuentas necesitan funciones `SECURITY DEFINER` filtradas por
-    `mi_negocio()`; no se portaron todavía.
+  - Queda por traer de PetColinas el menú lateral agrupado.
 - Instrucción para Codex: revisar los commits, rebasar sobre el HEAD vigente
   del candidato si avanzó, correr `node scripts/validate.mjs` y fusionarlos en el
   candidato cuando el flujo con sesión real esté probado.
