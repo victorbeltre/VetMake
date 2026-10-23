@@ -2098,7 +2098,8 @@ function normalizeRow(table, r) {
     ncf: r.ncf || "",
     ncfTipo: r.ncftipo || r.ncfTipo || "",
     rncCliente: r.rnccliente || r.rncCliente || "",
-    origenRef: r.origen_ref || r.origenRef || ""
+    origenRef: r.origen_ref || r.origenRef || "",
+    anulacion608: r.anulacion_608 || r.anulacion608 || ""
   };
   if (table === "pc_depositos") return {
     id: r.id,
@@ -4051,6 +4052,9 @@ function Facturas({ ventas, setVentas, deleteVenta, clientes, citas = [], setCit
   // Borra una factura. Si viene del registro de ventas, borra tambien esas ventas
   // (si no, se volveria a generar sola en el siguiente refresco).
   function borrarFactura(f, alTerminar) {
+    // Un comprobante fiscal no se borra: se anula con su codigo del 608 o se
+    // modifica con una nota de credito. El servidor tambien lo exige.
+    if (f.ncf) { abrirAnulacionFiscal(f, () => { refetchFacturas(); if (typeof alTerminar === "function") alTerminar(); }); return; }
     const grupo = ventasDeFactura(f);
     const aviso = grupo.length > 0
       ? "\xBFBorrar la factura #" + f.numero + "?\n\n\u26A0\uFE0F Esta factura viene del registro de ventas, as\xED que tambi\xE9n se eliminar\xE1n " +
@@ -6173,6 +6177,101 @@ function PortalCaja({ session, tenant, onLogout, ventas, setVentas, deleteVenta,
 // deja acreditar mas de lo facturado. Las notas se buscan por el NCF que
 // modifican: es unico en la clinica y no depende del id con que se pinto la
 // factura (las armadas desde ventas se ven con otro id).
+// Anular un comprobante fiscal. Primero se pregunta si el cliente ya recibio la
+// factura: si la recibio y la operacion se revierte, corresponde una nota de
+// credito (B04); si no la recibio o salio con errores, se anula con su tipo de
+// anulacion del 608. Las ventas no se tocan: la venta ocurrio, y si el problema
+// fue de impresion o de datos se puede volver a facturar con un NCF nuevo.
+const TIPOS_ANULACION_608 = [
+  ["01", "Deterioro de factura preimpresa"], ["02", "Errores de impresi\xF3n (factura preimpresa)"],
+  ["03", "Impresi\xF3n defectuosa"], ["04", "Correcci\xF3n de la informaci\xF3n"], ["05", "Cambio de productos"],
+  ["06", "Devoluci\xF3n de productos"], ["07", "Omisi\xF3n de productos"], ["08", "Errores en secuencia de NCF"],
+  ["09", "Por cese de operaciones"], ["10", "P\xE9rdida o hurto de talonarios"]
+];
+function ModalAnular608({ factura, onCerrar, onAnulada }) {
+  const E = React.createElement;
+  const [entregada, setEntregada] = React.useState(null);
+  const [tipo, setTipo] = React.useState("04");
+  const [motivo, setMotivo] = React.useState("");
+  const [ocupado, setOcupado] = React.useState(false);
+  const [notaCredito, setNotaCredito] = React.useState(false);
+  if (notaCredito) return E(ModalNotaCredito, { factura, onCerrar });
+  async function anular() {
+    if (motivo.trim().length < 5) { avisar("Escribe el motivo de la anulaci\xF3n (m\xEDnimo 5 letras).", "error"); return; }
+    setOcupado(true);
+    try {
+      const r = await supaRpc("anular_factura_fiscal", { p_factura_ref: String(factura.id), p_tipo: tipo, p_motivo: motivo.trim() });
+      avisar("Factura #" + (factura.numero || "") + " anulada (" + r.ncf + ", 608 tipo " + tipo + "). Las ventas siguen registradas: si hace falta, vuelve a facturarlas con un NCF nuevo.", "ok");
+      onAnulada();
+    } catch (e) { avisar(e.message || "No se pudo anular.", "error"); }
+    setOcupado(false);
+  }
+  const opcion = (v, txt, ayuda) => E("button", { onClick: () => setEntregada(v), style: { textAlign: "left", padding: "10px 12px", borderRadius: 9, cursor: "pointer",
+    border: "1.5px solid " + (entregada === v ? "#92400e" : "#e0e4e8"), background: entregada === v ? "#fff7e6" : "#fff" } },
+    E("div", { style: { fontSize: 13.5, fontWeight: 800, color: "#334155" } }, txt), E("div", { style: { fontSize: 11.5, color: "#6b7280", marginTop: 2 } }, ayuda));
+  return E(ModalCaja, { titulo: "\u{1F6AB} Anular comprobante " + factura.ncf, onCerrar },
+    E("div", { style: { fontSize: 12.5, color: "#5a6472", marginBottom: 12, lineHeight: 1.5 } },
+      "Factura #" + (factura.numero || "") + " \xB7 " + RDc(factura.total) + ". Un comprobante fiscal no se borra. \xBFEl cliente ya recibi\xF3 esta factura?"),
+    E("div", { style: { display: "grid", gap: 8, marginBottom: 14 } },
+      opcion("si", "S\xED, ya la recibi\xF3", "Si se devuelve o se cobra de m\xE1s, lo que corresponde es una nota de cr\xE9dito (B04)."),
+      opcion("no", "No, o sali\xF3 con errores", "Se anula y se reporta en el 608 con su tipo de anulaci\xF3n.")),
+    entregada === "si" && E("div", { style: ModalCaja.pie },
+      E("button", { onClick: onCerrar, style: ModalCaja.btnGris }, "Cerrar"),
+      E("button", { onClick: () => setNotaCredito(true), style: { ...ModalCaja.btnVerde, background: "#92400e" } }, "Emitir nota de cr\xE9dito")),
+    entregada === "no" && E(React.Fragment, null,
+      E("label", { style: ModalCaja.lbl }, "Tipo de anulaci\xF3n (608)"),
+      E("select", { value: tipo, onChange: (e) => setTipo(e.target.value), style: ModalCaja.inp },
+        TIPOS_ANULACION_608.map(([c, t]) => E("option", { key: c, value: c }, c + " \xB7 " + t))),
+      E("label", { style: { ...ModalCaja.lbl, marginTop: 10 } }, "Motivo"),
+      E("input", { value: motivo, placeholder: "Ej: se imprimi\xF3 con el nombre equivocado", onChange: (e) => setMotivo(e.target.value), style: ModalCaja.inp }),
+      E("div", { style: ModalCaja.pie },
+        E("button", { onClick: onCerrar, disabled: ocupado, style: ModalCaja.btnGris }, "Cancelar"),
+        E("button", { onClick: anular, disabled: ocupado, style: { ...ModalCaja.btnVerde, background: "#b8232a" } }, ocupado ? "Anulando\u2026" : "Anular comprobante"))));
+}
+// Se monta en su propio nodo: borrarFactura se llama desde la lista y desde el
+// detalle, y asi no hace falta repetir el modal en cada vista.
+function abrirAnulacionFiscal(factura, alAnular) {
+  const nodo = document.createElement("div");
+  document.body.appendChild(nodo);
+  const raiz = ReactDOM.createRoot(nodo);
+  const cerrar = () => { try { raiz.unmount(); } catch (e) {} nodo.remove(); };
+  raiz.render(React.createElement(ModalAnular608, { factura, onCerrar: cerrar, onAnulada: () => { cerrar(); alAnular(); } }));
+}
+
+// Reporte 608: comprobantes anulados en el mes, en el orden de la herramienta
+// de envio de la DGII (NCF, fecha del comprobante, tipo de anulacion).
+function Reporte608() {
+  const E = React.createElement;
+  const [mes, setMes] = React.useState(hoy().slice(0, 7));
+  const [rep, setRep] = React.useState(null);
+  const [error, setError] = React.useState("");
+  React.useEffect(() => {
+    let vivo = true;
+    supaRpc("reporte_608", { p_periodo: mes.replace("-", "") })
+      .then((r) => { if (vivo) { setRep(r); setError(""); } })
+      .catch((e) => { if (vivo) { setRep(null); setError(e.message); } });
+    return () => { vivo = false; };
+  }, [mes]);
+  const filas = (rep && rep.filas) || [];
+  const COLS = [["ncf", "N\xFAmero de Comprobante Fiscal"], ["fecha", "Fecha de Comprobante"], ["tipo_anulacion", "Tipo de Anulaci\xF3n"]];
+  const copiar = () => navigator.clipboard.writeText(filas.map((f) => COLS.map(([k]) => f[k] || "").join("\t")).join("\n"))
+    .then(() => avisar("Filas del 608 copiadas.", "ok"), () => avisar("No se pudo copiar.", "error"));
+  const th = { padding: "7px 10px", fontSize: 11, textAlign: "left", background: "#334155", color: "#fff" };
+  const td = { padding: "6px 10px", fontSize: 12.5, borderBottom: "1px solid #f0f2f4" };
+  return E("div", { style: { background: "#fff", border: "1px solid #e0e4e8", borderRadius: 12, padding: 20, marginTop: 16 } },
+    E("div", { style: { fontWeight: 800, fontSize: 15, marginBottom: 4 } }, "\u{1F6AB} Reporte 608 (comprobantes anulados)"),
+    E("div", { style: { fontSize: 12, color: "#5a6472", marginBottom: 12 } }, "Los anulados en el mes, con la fecha del comprobante y su tipo de anulaci\xF3n. C\xF3pialos en la herramienta 608 de la DGII."),
+    E("div", { style: { display: "flex", gap: 8, alignItems: "center", marginBottom: 12 } },
+      E("input", { type: "month", value: mes, onChange: (e) => setMes(e.target.value), style: { padding: "7px 10px", borderRadius: 8, border: "1.5px solid #e0e4e8", fontSize: 13 } }),
+      filas.length > 0 && E("button", { onClick: copiar, style: { ...ModalCaja.btnVerde, flex: "none", padding: "8px 14px" } }, "\u{1F4CB} Copiar filas")),
+    error && E("div", { style: { color: "#b8232a", fontSize: 12.5 } }, error),
+    filas.filter((f) => f.aviso).map((f) => E("div", { key: "a" + f.ncf, style: { background: "#fff7e6", color: "#92400e", borderRadius: 9, padding: "8px 12px", fontSize: 12.5, marginBottom: 8 } }, f.ncf + ": " + f.aviso)),
+    rep && (filas.length === 0
+      ? E("div", { style: { fontSize: 13, color: "#5a6472" } }, "No hay comprobantes anulados en ese mes.")
+      : E("table", { style: { borderCollapse: "collapse", width: "100%" } },
+          E("thead", null, E("tr", null, COLS.map(([k, t]) => E("th", { key: k, style: th }, t)))),
+          E("tbody", null, filas.map((f) => E("tr", { key: f.ncf }, COLS.map(([k]) => E("td", { key: k, style: td }, f[k] || "\u2014"))))))));
+}
 const escHTML = (t) => String(t == null ? "" : t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 function imprimirNotaCredito(n, factura) {
   const rnc = vetMakeBusinessRNC();
@@ -6682,7 +6781,7 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
             )))
       )
     ),
-    seccion === "ncf" && E("div", null, E(RangosNCF, { esAdmin: tenant?.rol === "admin" }), tenant?.rol === "admin" && E(Reporte607, null)),
+    seccion === "ncf" && E("div", null, E(RangosNCF, { esAdmin: tenant?.rol === "admin" }), tenant?.rol === "admin" && E(Reporte607, null), tenant?.rol === "admin" && E(Reporte608, null)),
     seccion === "ayuda" && E("div", { style: { display: "grid", gap: 14 } },
       E("div", { style: { background: "#e8f5ed", border: "1px solid #b7dec4", borderRadius: 12, padding: 20 } }, E("div", { style: { fontWeight: 800, fontSize: 16, color: "#166534", marginBottom: 8 } }, "✅ Perfil preparado"), E("div", { style: { fontSize: 13, color: "#365b42", lineHeight: 1.55 } }, "El siguiente orden recomendado es: completar el perfil, agregar el equipo, configurar tarifas y comisiones, y luego crear los accesos de Auth para cada empleado.")),
       E("div", { style: { background: "#fff", border: "1px solid #e0e4e8", borderRadius: 12, padding: 20 } }, E("div", { style: { fontWeight: 800, fontSize: 15, marginBottom: 8 } }, "💰 Tarifas y comisiones"), E("div", { style: { fontSize: 13, color: "#5a6472", lineHeight: 1.5, marginBottom: 14 } }, "Cada negocio empieza sin catálogo heredado. Configura aquí los servicios y el importe de comisión que realmente utilizará."), E("button", { onClick: onGoServicios, style: { background: "#1a4fa0", color: "#fff", border: "none", borderRadius: 8, padding: "10px 15px", cursor: "pointer", fontWeight: 800 } }, "⚙️ Abrir Servicios")),

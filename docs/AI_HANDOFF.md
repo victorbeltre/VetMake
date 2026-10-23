@@ -88,11 +88,29 @@ el historial remoto de Supabase son la fuente de verdad.
        herramienta de envío de la DGII, que valida y genera el TXT) o baja un
        CSV. A propósito NO se genera el TXT: un formato adivinado que la DGII
        rechace es peor que pegar en su herramienta.
+  6. **Anulación fiscal y reporte 608**:
+     - `private.anular_factura` (de Codex) ahora rechaza facturas con NCF y
+       además sella `anulada_en`. Sin NCF todo sigue igual.
+     - `borrarFactura` en el frontend: si la factura tiene NCF abre
+       `ModalAnular608` (montado en su propio nodo con `abrirAnulacionFiscal`,
+       porque se llama desde la lista y desde el detalle). Pregunta si el
+       cliente ya recibió la factura: «sí» lleva a la nota de crédito; «no»
+       pide el tipo de anulación 01–10 y el motivo.
+     - `anular_factura_fiscal(p_factura_ref, p_tipo, p_motivo)`: solo admin;
+       rechaza facturas con nota de crédito; guarda `anulacion_608`; NO borra
+       las ventas (la venta ocurrió). Mueve `origen_ref` a
+       `origen_ref_anulado`, así la factura armada desde ventas reaparece y se
+       puede volver a facturar con NCF nuevo.
+     - `reporte_608(p_periodo)`: anulados en el mes (por fecha de anulación,
+       zona America/Santo_Domingo) con NCF, fecha del comprobante y tipo;
+       avisa los anulados antes de esta función, que no tienen tipo. Pantalla
+       `Reporte608` bajo el 607, con «Copiar filas».
 - Archivos principales: `index.html`, `scripts/validate.mjs`,
   `supabase/migrations/20261023180000_resultados_laboratorio.sql`,
   `supabase/migrations/20261023190000_comprobantes_fiscales_ncf.sql`,
   `supabase/migrations/20261023200000_caja_diaria_y_cuentas.sql`,
-  `supabase/migrations/20261023210000_notas_credito_y_607.sql`.
+  `supabase/migrations/20261023210000_notas_credito_y_607.sql`,
+  `supabase/migrations/20261023220000_anulacion_fiscal_608.sql`.
 - Caja en Supabase (aplicado y registrado como `20261023200000
   caja_diaria_y_cuentas`): `pc_cuentas`, `pc_caja_dia`, `pc_caja_movimientos`,
   `pc_traslados`, `pc_cuenta_saldos` con `negocio_id` en la clave, RLS solo de
@@ -115,7 +133,7 @@ el historial remoto de Supabase son la fuente de verdad.
 - Pruebas ejecutadas:
   - `node scripts/validate.mjs`: OK. Ahora espera 40 migraciones y falla si
     reaparece `ocrLab`, `parsearFilasLab`, `tesseract`, etc.; con NCF, caja,
-    B04 y 607 espera 43 migraciones y 35 RPC declaradas (comprobado
+    B04, 607 y 608 espera 44 migraciones y 37 RPC declaradas (comprobado
     inyectando `ocrLab`).
   - SQL reversible con dos clínicas (Clínica de Prueba B y PetLand): B ve su
     fila; PetLand ve 0; insertar con el `negocio_id` ajeno da 42501; subir a la
@@ -158,6 +176,17 @@ el historial remoto de Supabase son la fuente de verdad.
     de la clínica, facturas sin NCF, anuladas para el 608), «Copiar filas» deja
     23 columnas separadas por tabulador; la nota parcial manda
     `emitir_nota_credito` con los argumentos correctos y abre la impresión.
+  - 608, SQL reversible: la vía vieja rechaza una factura con NCF; código 11
+    se rechaza; anulación tipo 02 deja `origen_ref` nulo y
+    `origen_ref_anulado = venta_a`; repetirla devuelve la misma; la misma venta
+    se refactura con B0200000003 en otra fila; una factura con nota de crédito
+    no se anula; sin NCF se anula por la vía normal; el 608 trae el NCF con
+    tipo 02; PetLand ve 0 y no encuentra la factura; rol caja «No autorizado».
+    `ROLLBACK` completo; `get_advisors(security)` sin hallazgos nuevos.
+  - 608, Playwright con Supabase simulado: «ya la recibió» abre la nota de
+    crédito; «no» manda `anular_factura_fiscal` con tipo y motivo, cierra el
+    modal y llama el refresco; el 608 muestra el aviso del anulado sin tipo y
+    copia 3 columnas por fila.
   - Caja, Playwright con Supabase simulado: los cinco modos se dibujan sin
     errores; cerrar manda `caja_cerrar_dia` solo con lo contado; agregar banco
     manda `cuentas_guardar` con sus palabras clave; el traslado propone el banco
@@ -169,10 +198,8 @@ el historial remoto de Supabase son la fuente de verdad.
     tenía cualquier factura `venta_...` guardada; conviene que la edición use
     `origen_ref` igual que `asignar_ncf_factura`.
   - Fiscal: falta la facturación electrónica (e-CF), que la DGII va haciendo
-    obligatoria por etapas, y el 608 como archivo (hoy solo se listan las
-    anuladas con NCF). `anular_factura` sigue permitiendo anular una factura
-    con NCF: conviene que pida el código de anulación del 608 o que obligue a
-    emitir nota de crédito si la factura ya se entregó. En el 607 las ventas
+    obligatoria por etapas. El 608 toma el mes de la ANULACIÓN; confirmar con
+    el contador que es el criterio que usa la herramienta. En el 607 las ventas
     B02 se reportan una por una (siempre válido); la consolidación de consumo
     que permita la norma vigente debe confirmarla el contador. Las notas B04
     van con montos positivos e identificadas por su NCF modificado; verificar
