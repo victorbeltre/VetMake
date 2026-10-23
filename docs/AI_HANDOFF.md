@@ -3,6 +3,63 @@
 Este archivo resume el estado comprobable del trabajo activo. El repositorio y
 el historial remoto de Supabase son la fuente de verdad.
 
+## Relevo de Claude — módulos nuevos de PetColinas (2026-10-23)
+
+- Agente que entrega: Claude Code.
+- Rama: `claude/modulos-petcolinas-oct`, creada desde
+  `codex/import-catalog-duplicates` en `c61ad08` (no desde `main`: `main` sigue en
+  `5b26bad` y el candidato vigente es esa rama). Commits `3430ee5` y `42dd4f6`.
+- Objetivo: traer a VetMake lo que PetColinas ganó en octubre, sin datos ni
+  marca de PetColinas, separado por clínica.
+- Resultado:
+  1. **Recordatorios de desparasitación por producto** (`3430ee5`): el catálogo
+     `ANTIPARASITARIOS` lleva `cobertura` y `meses` (NexGard Spectra: dentro y
+     fuera, 35 días, tipo `desparasitacion`; Ferox: solo fuera, 3 meses de
+     calendario, tipo `antipulgas`). Incluye el modal `ProgramarDesparasitacion`
+     (Seguimientos y Ventas), la pregunta 1 mes / 3 meses al vender un
+     desparasitante sin plazo conocido, y `mensajeRecordatorioParasitos` con el
+     nombre de la clínica. Se añadió `fechaLocal()`: `hoy()` ya no usa UTC, que
+     desde las 8:00 p.m. de RD marcaba el día siguiente. Sin cambios de esquema:
+     usa `pc_seguimientos` como antes.
+  2. **Hemogramas en la Evolución** (`42dd4f6`): `LabResultados` y
+     `ModalLabPreparar`. El informe del laboratorio se usa como IMAGEN: los
+     resultados no se leen ni se reescriben (en PetColinas una versión con IA/OCR
+     cambió valores). El PDF lleva logo (`negocios.logo_url`), color principal,
+     nombre y contacto de la clínica; nada del laboratorio. Subidas y enlaces
+     firmados van por `vetmakeAuthedFetch`.
+- Archivos principales: `index.html`, `scripts/validate.mjs`,
+  `supabase/migrations/20261023180000_resultados_laboratorio.sql`.
+- Cambios de Supabase (`vetmake-dev`, ya aplicados y registrados en
+  `schema_migrations` como `20261023180000 resultados_laboratorio`):
+  `pc_lab_resultados` con clave `(negocio_id, id)`, RLS por `mi_negocio()` +
+  `tiene_rol(admin, veterinario)`, solo SELECT/INSERT; bucket privado
+  `laboratorios` con políticas que exigen la carpeta `<negocio_id>/`.
+- Pruebas ejecutadas:
+  - `node scripts/validate.mjs`: OK. Ahora espera 40 migraciones y falla si
+    reaparece `ocrLab`, `parsearFilasLab`, `tesseract`, etc. (comprobado
+    inyectando `ocrLab`).
+  - SQL reversible con dos clínicas (Clínica de Prueba B y PetLand): B ve su
+    fila; PetLand ve 0; insertar con el `negocio_id` ajeno da 42501; subir a la
+    carpeta ajena da 42501; subir a la propia funciona. `ROLLBACK` completo.
+  - `get_advisors(security)`: sin hallazgos nuevos.
+  - Lógica de desparasitación en Node: Spectra 35 d, Ferox 3 meses, 31 ene +
+    1 mes = 28 feb, mensaje con el nombre de la clínica.
+  - PDF de hemograma generado en Node con un negocio de prueba: nombre, color y
+    contacto correctos, sin "PetColinas".
+  - Playwright: carga el login sin errores JS.
+- Riesgos o pendientes:
+  - No se probó el flujo con sesión real (faltan credenciales de prueba por rol).
+  - `vetmake-dev` está ACTIVO otra vez (se restauró el 2026-10-23).
+  - El proyecto `vetmake-dev` contiene tablas `fit13_*` de otra aplicación
+    (migraciones `fit13_init` del 26 sep). No son de VetMake; conviene moverlas.
+  - Quedan por traer de PetColinas: caja diaria y cuentas (M18/M19), NCF
+    (M16), gastos con «pagado por» y tarjeta empresarial (M20) y el menú
+    lateral. Caja y cuentas necesitan funciones `SECURITY DEFINER` filtradas por
+    `mi_negocio()`; no se portaron todavía.
+- Instrucción para Codex: revisar los dos commits, rebasar sobre el HEAD vigente
+  del candidato si avanzó, correr `node scripts/validate.mjs` y fusionarlos en el
+  candidato cuando el flujo con sesión real esté probado.
+
 ## Estado actual
 
 - Agente activo: Codex.
