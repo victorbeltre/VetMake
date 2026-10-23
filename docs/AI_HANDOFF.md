@@ -5,6 +5,11 @@ el historial remoto de Supabase son la fuente de verdad.
 
 ## Relevo de Claude — módulos nuevos de PetColinas (2026-10-23)
 
+> **Integrado en el candidato.** Por instrucción de Victor, Claude avanzó
+> `codex/import-catalog-duplicates` (PR #1) hasta estos commits (avance
+> directo desde `c61ad08`, sin conflictos). No se tocó `main` ni Pages. Falta la
+> prueba con sesión real de `docs/PRUEBA_ROLES.md` antes de publicar.
+
 - Agente que entrega: Claude Code.
 - Rama: `claude/modulos-petcolinas-oct`, creada desde
   `codex/import-catalog-duplicates` en `c61ad08` (no desde `main`: `main` sigue en
