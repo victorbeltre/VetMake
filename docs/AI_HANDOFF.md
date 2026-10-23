@@ -105,6 +105,14 @@ el historial remoto de Supabase son la fuente de verdad.
        zona America/Santo_Domingo) con NCF, fecha del comprobante y tipo;
        avisa los anulados antes de esta función, que no tienen tipo. Pantalla
        `Reporte608` bajo el 607, con «Copiar filas».
+  7. **Menú lateral agrupado**: se conserva el `aside` de Codex (y su
+     tutorial) y se le añade lo que tenía el de PetColinas. `TABS` lleva `grupo`
+     (Inicio, Operación, Clientes, Negocio, Ajustes, en `GRUPOS_MENU`); con el
+     menú abierto se ven los títulos de grupo y encogido una raya entre grupos.
+     En pantallas de hasta 760 px el menú es un cajón que sale del botón ☰
+     flotante y se cierra al elegir, al tocar el fondo o con Escape (antes
+     ocupaba todo el ancho encima del contenido). «Cierre de caja» pasa a
+     llamarse «Caja», que ya no es solo el cierre.
 - Archivos principales: `index.html`, `scripts/validate.mjs`,
   `supabase/migrations/20261023180000_resultados_laboratorio.sql`,
   `supabase/migrations/20261023190000_comprobantes_fiscales_ncf.sql`,
@@ -187,6 +195,10 @@ el historial remoto de Supabase son la fuente de verdad.
     crédito; «no» manda `anular_factura_fiscal` con tipo y motivo, cierra el
     modal y llama el refresco; el 608 muestra el aviso del anulado sin tipo y
     copia 3 columnas por fila.
+  - Menú, Playwright con la app completa y Supabase simulado: en escritorio
+    248 px con los cinco grupos y 68 px encogido; en 390 px el cajón está fuera
+    (x = −290), el botón ☰ lo abre (x = 0), elegir «Caja» lo cierra y deja Caja
+    activa. Sin errores JS.
   - Caja, Playwright con Supabase simulado: los cinco modos se dibujan sin
     errores; cerrar manda `caja_cerrar_dia` solo con lo contado; agregar banco
     manda `cuentas_guardar` con sus palabras clave; el traslado propone el banco
@@ -214,7 +226,8 @@ el historial remoto de Supabase son la fuente de verdad.
   - `vetmake-dev` está ACTIVO otra vez (se restauró el 2026-10-23).
   - El proyecto `vetmake-dev` contiene tablas `fit13_*` de otra aplicación
     (migraciones `fit13_init` del 26 sep). No son de VetMake; conviene moverlas.
-  - Queda por traer de PetColinas el menú lateral agrupado.
+  - De PetColinas ya no queda nada pendiente de traer de lo hecho hasta el
+    23 oct 2026.
 - Instrucción para Codex: revisar los commits, rebasar sobre el HEAD vigente
   del candidato si avanzó, correr `node scripts/validate.mjs` y fusionarlos en el
   candidato cuando el flujo con sesión real esté probado.

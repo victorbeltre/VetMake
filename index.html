@@ -2587,26 +2587,28 @@ const Select = ({ label, value, onChange, options }) => /* @__PURE__ */ React.cr
 ));
 const KPI = ({ label, val, color = C.verde, sub }) => /* @__PURE__ */ React.createElement(Card, { style: { textAlign: "center", borderTop: `4px solid ${color}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: C.grisd, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 } }, label), /* @__PURE__ */ React.createElement("div", { style: { fontFamily: "Georgia,serif", fontSize: 28, color, fontWeight: 700, lineHeight: 1 } }, val), sub && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: C.grisd, marginTop: 6 } }, sub));
 const TABS = [
-  { id: "dashboard", icon: "\u{1F4CA}", label: "Dashboard" },
-  { id: "inteligencia", icon: "🧠", label: "Inteligencia VetMake" },
-  { id: "tutorial", icon: "\u{1F9ED}", label: "Tutorial y primeros pasos" },
-  { id: "agenda", icon: "\u{1F4C5}", label: "Agenda" },
-  { id: "ventas", icon: "\u{1F4B0}", label: "Ventas" },
-  { id: "clientes", icon: "\u{1F43E}", label: "Clientes / CRM" },
-  { id: "seguimientos", icon: "\u{1F514}", label: "Seguimientos" },
-  { id: "inventario", icon: "\u{1F4E6}", label: "Inventario" },
-  { id: "nomina", icon: "\u{1F465}", label: "N\xF3mina" },
-  { id: "gastos", icon: "\u{1F4B8}", label: "Gastos" },
-  { id: "reportes", icon: "\u{1F4C8}", label: "Reportes" },
-  { id: "facturas", icon: "\u{1F4C4}", label: "Facturas" },
-  { id: "cobros", icon: "\u{1F4B5}", label: "Cobros" },
-  { id: "planes", icon: "\u{1F4B3}", label: "Planes" },
-  { id: "servicios", icon: "\u2699\uFE0F", label: "Servicios" },
-  { id: "configuracion", icon: "\u{1F527}", label: "Configuración" },
-  { id: "importar", icon: "\u{1F4E5}", label: "Importar / Exportar" },
-  { id: "caja", icon: "\u{1F9FE}", label: "Cierre de caja" },
-  { id: "notificaciones", icon: "\u{1F514}", label: "Notificaciones" }
+  { id: "dashboard", icon: "\u{1F4CA}", label: "Dashboard", grupo: "Inicio" },
+  { id: "inteligencia", icon: "🧠", label: "Inteligencia VetMake", grupo: "Inicio" },
+  { id: "tutorial", icon: "\u{1F9ED}", label: "Tutorial y primeros pasos", grupo: "Inicio" },
+  { id: "agenda", icon: "\u{1F4C5}", label: "Agenda", grupo: "Operaci\xF3n" },
+  { id: "ventas", icon: "\u{1F4B0}", label: "Ventas", grupo: "Operaci\xF3n" },
+  { id: "clientes", icon: "\u{1F43E}", label: "Clientes / CRM", grupo: "Clientes" },
+  { id: "seguimientos", icon: "\u{1F514}", label: "Seguimientos", grupo: "Clientes" },
+  { id: "inventario", icon: "\u{1F4E6}", label: "Inventario", grupo: "Negocio" },
+  { id: "nomina", icon: "\u{1F465}", label: "N\xF3mina", grupo: "Negocio" },
+  { id: "gastos", icon: "\u{1F4B8}", label: "Gastos", grupo: "Negocio" },
+  { id: "reportes", icon: "\u{1F4C8}", label: "Reportes", grupo: "Negocio" },
+  { id: "facturas", icon: "\u{1F4C4}", label: "Facturas", grupo: "Operaci\xF3n" },
+  { id: "cobros", icon: "\u{1F4B5}", label: "Cobros", grupo: "Operaci\xF3n" },
+  { id: "planes", icon: "\u{1F4B3}", label: "Planes", grupo: "Clientes" },
+  { id: "servicios", icon: "\u2699\uFE0F", label: "Servicios", grupo: "Ajustes" },
+  { id: "configuracion", icon: "\u{1F527}", label: "Configuración", grupo: "Ajustes" },
+  { id: "importar", icon: "\u{1F4E5}", label: "Importar / Exportar", grupo: "Ajustes" },
+  { id: "caja", icon: "\u{1F9FE}", label: "Caja", grupo: "Operaci\xF3n" },
+  { id: "notificaciones", icon: "\u{1F514}", label: "Notificaciones", grupo: "Clientes" }
 ];
+// Orden de los grupos del menu lateral. Una pestaña sin grupo cae al final.
+const GRUPOS_MENU = ["Inicio", "Operaci\xF3n", "Clientes", "Negocio", "Ajustes"];
 const VENTAS_SEED = [];
 const GASTOS_SEED = [];
 const CLIENTES_SEED = [];
@@ -6798,6 +6800,17 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
   });
   const [menuAbierto, setMenuAbierto] = useState(() => localStorage.getItem("vetmake_menu_abierto") !== "0");
   const toggleMenu = () => setMenuAbierto(prev => { const next=!prev; localStorage.setItem("vetmake_menu_abierto",next?"1":"0"); return next; });
+  // En el telefono el menu es un cajon que sale desde el boton ☰ y se cierra al
+  // elegir, al tocar fuera o con Escape. Antes ocupaba todo el ancho encima del
+  // contenido y habia que bajar 19 opciones para llegar a la pantalla.
+  const [menuMovil, setMenuMovil] = useState(false);
+  useEffect(() => {
+    if (!menuMovil) return;
+    const fn = (e) => { if (e.key === "Escape") setMenuMovil(false); };
+    window.addEventListener("keydown", fn);
+    return () => window.removeEventListener("keydown", fn);
+  }, [menuMovil]);
+  const conTexto = menuAbierto || menuMovil;
   const [showPendModal, setShowPendModal] = useState(false);
   const [dbReady, setDbReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState("conectando");
@@ -7021,11 +7034,13 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
     disabled: pollingSync,
     style: { background:"rgba(255,255,255,0.15)", border:"1px solid rgba(255,255,255,0.3)", color:"#fff", borderRadius:6, padding:"2px 8px", fontSize:10, cursor:"pointer", fontWeight:700, opacity: pollingSync ? 0.6 : 1 }
   }, pollingSync ? "⏳ Sincronizando..." : "🔄 Sincronizar ahora")
-)), /* @__PURE__ */ React.createElement("style", null, `@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} } @media(max-width:760px){.vetmake-shell{display:block!important}.vetmake-sidebar{position:relative!important;width:100%!important;max-height:none!important}.vetmake-main{width:100%!important}}`)),
+)), /* @__PURE__ */ React.createElement("style", null, `@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} } .vetmake-burger{display:none}.vetmake-fondo{display:none} @media(max-width:760px){.vetmake-shell{display:block!important}.vetmake-sidebar{position:fixed!important;top:0!important;left:0;bottom:0;width:276px!important;max-height:100vh!important;z-index:1200;transform:translateX(-105%);transition:transform .2s ease!important;box-shadow:0 0 40px rgba(0,0,0,.25)}.vetmake-sidebar.vetmake-movil-abierto{transform:none}.vetmake-colapsar{display:none!important}.vetmake-burger{display:flex!important}.vetmake-fondo.vetmake-movil-abierto{display:block!important}.vetmake-main{width:100%!important}}`)),
   tab !== "tutorial" && React.createElement(TutorialPasoNavegacion,{tab,setTab}),
   /* @__PURE__ */ React.createElement("div", { className:"vetmake-shell", style:{display:"flex",alignItems:"stretch",minHeight:"calc(100vh - 108px)"}},
-  /* @__PURE__ */ React.createElement("aside", { className:"vetmake-sidebar", style: {
-    width: menuAbierto ? 248 : 68,
+  React.createElement("button", { className:"vetmake-burger", onClick:()=>setMenuMovil(true), "aria-label":"Abrir men\xFA", style:{position:"fixed",left:14,bottom:16,zIndex:1100,width:52,height:52,borderRadius:"50%",border:"none",background:C.verde,color:"#fff",fontSize:22,alignItems:"center",justifyContent:"center",boxShadow:"0 6px 18px rgba(0,0,0,.25)",cursor:"pointer"}}, "\u2630"),
+  React.createElement("div", { className:"vetmake-fondo" + (menuMovil ? " vetmake-movil-abierto" : ""), onClick:()=>setMenuMovil(false), style:{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",zIndex:1150}}),
+  /* @__PURE__ */ React.createElement("aside", { className:"vetmake-sidebar" + (menuMovil ? " vetmake-movil-abierto" : ""), "aria-label":"Men\xFA principal", style: {
+    width: conTexto ? 248 : 68,
     flexShrink: 0,
     background: "#fff",
     borderRight: "1px solid #dfe5e8",
@@ -7037,20 +7052,29 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
     overflowY: "auto",
     transition: "width .2s ease"
   } },
-  /* @__PURE__ */ React.createElement("button", { onClick:toggleMenu, title:menuAbierto?"Cerrar menú":"Abrir menú", style:{width:"100%",border:"none",borderRadius:9,padding:"10px 8px",marginBottom:9,background:"#eef5f0",color:C.verde,fontWeight:900,cursor:"pointer",textAlign:menuAbierto?"right":"center",fontSize:16}}, menuAbierto?"◀ Cerrar":"☰"),
-  TABS.map((t) => {
+  /* @__PURE__ */ React.createElement("button", { className:"vetmake-colapsar", onClick:toggleMenu, title:menuAbierto?"Cerrar menú":"Abrir menú", style:{width:"100%",border:"none",borderRadius:9,padding:"10px 8px",marginBottom:9,background:"#eef5f0",color:C.verde,fontWeight:900,cursor:"pointer",textAlign:menuAbierto?"right":"center",fontSize:16}}, menuAbierto?"◀ Cerrar":"☰"),
+  [...GRUPOS_MENU, ""].map((g) => {
+    const items = TABS.filter((t) => (t.grupo || "") === g || (g === "" && t.grupo && !GRUPOS_MENU.includes(t.grupo)));
+    if (!items.length) return null;
+    return React.createElement("div", { key: "g" + g, style: { marginTop: 8 } },
+      // Encogido, una raya separa los grupos: sin ella los iconos serian una
+      // sola columna indistinguible.
+      conTexto
+        ? React.createElement("div", { style: { fontSize: 10, fontWeight: 800, letterSpacing: 1.1, textTransform: "uppercase", color: "#9aa5ad", padding: "4px 10px 5px" } }, g || "Otros")
+        : React.createElement("div", { style: { height: 1, background: "#e5eaec", margin: "4px 8px 7px" } }),
+      items.map((t) => {
     const pendientes = t.id === "notificaciones"
       ? (todosClientes || []).filter(c => esInscripcionWeb(c) && !notifArchivada(c) && !notifAtendida(c, notifLeidas instanceof Set ? notifLeidas : new Set())).length
       : t.id === "ventas"
       ? (ventas || []).filter(v => (v.formaPago || v.formapago || "") === "Pago pendiente").length
       : 0;
-    return /* @__PURE__ */ React.createElement("button", { key: t.id, onClick: () => setTab(t.id), style: {
+    return /* @__PURE__ */ React.createElement("button", { key: t.id, onClick: () => { setTab(t.id); setMenuMovil(false); }, title: conTexto ? undefined : t.label, style: {
       width: "100%",
       background: tab === t.id ? C.verdeL : "transparent",
       border: "none",
       borderRadius: 9,
       cursor: "pointer",
-      padding: menuAbierto ? "10px 10px" : "10px 6px",
+      padding: conTexto ? "10px 10px" : "10px 6px",
       marginBottom: 3,
       fontSize: 12,
       fontWeight: 700,
@@ -7058,14 +7082,14 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
       borderLeft: tab === t.id ? `4px solid ${C.verde}` : "4px solid transparent",
       display: "flex",
       alignItems: "center",
-      justifyContent: menuAbierto ? "flex-start" : "center",
+      justifyContent: conTexto ? "flex-start" : "center",
       gap: 8,
       whiteSpace: "nowrap",
       transition: "all .15s",
       overflow: "hidden"
     } },
       /* @__PURE__ */ React.createElement("span", {style:{fontSize:16,minWidth:20,textAlign:"center"}}, t.icon),
-      menuAbierto && t.label,
+      conTexto && t.label,
       pendientes > 0 && /* @__PURE__ */ React.createElement("span", { style: {
         background: "#e53e3e", color: "#fff", borderRadius: "50%",
         fontSize: 10, fontWeight: 800, minWidth: 18, height: 18,
@@ -7073,6 +7097,7 @@ function PetColinasApp({ session, tenant, onLogout, onTenantChange, empleados, s
         padding: "0 4px", marginLeft: 2
       }}, pendientes)
     );
+  }));
   })), /* @__PURE__ */ React.createElement("main", { className:"vetmake-main", style:{flex:1,minWidth:0}}, /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1200, margin: "0 auto", padding: "28px 24px" } }, tab === "tutorial" && React.createElement(TutorialVetMake,{setTab,tenant}), tab === "dashboard" && React.createElement(AvisoAntiparasitarios, { seguimientos, clientes: todosClientes, ventas, setTab }), tab === "dashboard" && React.createElement(AvisoAbonosPorCobrar, { ventas, clientes: todosClientes, setTab }), tab === "dashboard" && React.createElement(AvisoCitasProximas, { citas, setCitas, clientes: todosClientes }), tab === "dashboard" && React.createElement(AvisoReactivacion, { clientes: todosClientes, ventas, setTab }), tab === "dashboard" && React.createElement(AvisoCambiosFacturas, { session }), tab === "dashboard" && React.createElement(AvisoFechasFuturas, { ventas, setVentas }), tab === "dashboard" && React.createElement(AvisoRespaldo, null), tab === "dashboard" && React.createElement(AvisoClientesNuevos, { clientes: todosClientes, notifLeidas, setTab }), tab === "dashboard" && (ventasLoaded ? /* @__PURE__ */ React.createElement(Dashboard, { totalVentas, totalEgresos, utilidad, totalNomina, totalGastos, ventasMes, comisionesGrm, comisionesVet, comisionesValen, comGrmSistema, comVetSistema, comAyleinSistema, comValenSistema, COM_GRM_EXCEL_MARZO, COM_VET_EXCEL_MARZO, seguimientos, clientes, ventas, inventario: todoInventario, setVentas, setTab, citas, gastos, pagosNom }) : /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "70px 24px", color: "#5a6472" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 32, marginBottom: 12 } }, "⏳"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 700, marginBottom: 6 } }, "Sincronizando con Supabase…"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12 } }, "Los n\xFAmeros ser\xE1n los mismos que en el Google Sheets"))),
         tab === "agenda" && /* @__PURE__ */ React.createElement(Agenda, { citas, setCitas, deleteCita: deleteCitaRow, clientes: todosClientes, ventas, setVentas, tarifasGrooming, tarifasVet, setTab, refetchCitasAgenda: refetchCitas }), /* @__PURE__ */ React.createElement("div", { key: "t-ventas", style: { display: tab === "ventas" ? "" : "none" } }, /* @__PURE__ */ React.createElement(Ventas, { ventas, setVentas, deleteVenta, inventario, setInventario, clientes: todosClientes, setClientes, citas, setCitas, paquetes, setPaquetes, setTab, setCrmClienteInicial, clienteVentaInicial: crmClienteInicial, clearClienteVentaInicial: clearCrmClienteInicial, tarifasGrooming, tarifasVet, setSeguimientos })), /* @__PURE__ */ React.createElement("div", { key: "t-clientes", style: { display: tab === "clientes" ? "" : "none" } }, /* @__PURE__ */ React.createElement(CRM, { clientes: todosClientes, setClientes, deleteCliente, onVirtualFusion: () => setVirtualFusionVer(v => v+1), ventas, setVentas, clienteInicial: crmClienteInicial, onClearClienteInicial: clearCrmClienteInicial, setTab, setCrmClienteInicial, historias, setHistorias: setHistoriasRaw, deleteHistoria, citas, setCitas })), tab === "inteligencia" && React.createElement(InteligenciaVetMake, { inventario:todoInventario, ventas, clientes:todosClientes, citas, gastos, tarifasGrooming, tarifasVet, knowledge:vetKnowledge, learning:vetLearning, knowledgeLoaded:vetKnowledgeLoaded, tenant, setTab, refetchLearning:refetchVetLearning }), tab === "seguimientos" && /* @__PURE__ */ React.createElement(Seguimientos, { seguimientos, setSeguimientos, clientes, ventas, pushHistorial, snapSeguimientos: seguimientos }), tab === "inventario" && /* @__PURE__ */ React.createElement(Inventario, { inventario: todoInventario, setInventario, ventas, deleteInv, knowledge:vetKnowledge, learning:vetLearning }), tab === "nomina" && /* @__PURE__ */ React.createElement(Nomina, { empleados, setEmpleados, pagosNom, setPagosNom, ventasMes, mesActual }), tab === "gastos" && /* @__PURE__ */ React.createElement(Gastos, { gastos, setGastos }), tab === "facturas" && /* @__PURE__ */ React.createElement(Facturas, { ventas, setVentas, deleteVenta, clientes: todosClientes, citas, setCitas, historias, tarifasGrooming, tarifasVet, inventario: todoInventario }), tab === "importar" && React.createElement(CentroDatosVetMake, { ventas, gastos, clientes: todosClientes, pagosNom, empleados, inventario: todoInventario, citas, seguimientos, tarifasGrooming, tarifasVet, onImported: sincronizarAhora }), tab === "reportes" && /* @__PURE__ */ React.createElement(Reportes, { ventas, gastos, pagosNom, empleados }),
     tab === "servicios" && React.createElement(TabServicios, { tarifasGrooming, setTarifasGrooming, tarifasVet, setTarifasVet, inventario: todoInventario, setInventario, knowledge:vetKnowledge, learning:vetLearning }),
