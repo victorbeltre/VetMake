@@ -288,6 +288,9 @@ function vetClassifyItem(nombre, conocimiento = [], aprendidos = []) {
   if (regla) return { category: regla[1], inventoryCategory: regla[2], confidence: 82, canonical: original, reason: regla[3] };
   return { category: "sin_clasificar", inventoryCategory: "", confidence: 35, canonical: original, reason: "No hay evidencia suficiente; requiere confirmación" };
 }
+// Rol de quien inicio sesion en la clinica activa. Solo para ocultar botones
+// que el servidor de todas formas rechazaria; la autorizacion real es la RLS.
+function vetMakeRol() { return String((VETMAKE_TENANT_CONTEXT && VETMAKE_TENANT_CONTEXT.rol) || (window.__vetmakeTenant && window.__vetmakeTenant.rol) || ""); }
 function vetMakeRoleLabel(rol) {
   const labels = { admin: "Administrador", caja: "Caja", veterinario: "Veterinario", groomer: "Groomer" };
   return labels[rol] || "Equipo";
@@ -4828,7 +4831,7 @@ function Facturas({ ventas, setVentas, deleteVenta, clientes, citas = [], setCit
       factura: ncfPara, ocupado: ncfOcupado,
       onCerrar: () => { if (!ncfOcupado) setNcfPara(null); },
       onAsignar: (tipo, rnc) => asignarNCF(ncfPara, tipo, rnc)
-    }), f.ncf && f.estado !== "anulada" && React.createElement("button", { onClick: () => setNotaPara(f), title: "Emitir una nota de cr\xE9dito (B04) que modifica esta factura", style: { background: "#fff", color: "#92400e", border: "1.5px solid #d9a441", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 700 } }, "\u21A9\uFE0F Nota de cr\xE9dito"),
+    }), f.ncf && f.estado !== "anulada" && vetMakeRol() === "admin" && React.createElement("button", { onClick: () => setNotaPara(f), title: "Emitir una nota de cr\xE9dito (B04) que modifica esta factura", style: { background: "#fff", color: "#92400e", border: "1.5px solid #d9a441", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 700 } }, "\u21A9\uFE0F Nota de cr\xE9dito"),
     notaPara && String(notaPara.id) === String(f.id) && React.createElement(ModalNotaCredito, { factura: notaPara, onCerrar: () => setNotaPara(null) }),
     React.createElement("button", { onClick: () => { abrirEditar(f); }, style: { background: "#dbeafe", color: "#1d4ed8", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 700 } }, "\u270F\uFE0F Editar"), React.createElement("button", {
       onClick: () => setAjusteFondo({ mascota: f.mascota, propietario: f.propietario, telefono: f.telefono, facturaId: String(f.id), facturaNumero: f.numero, fecha: f.fecha }),

@@ -113,6 +113,14 @@ el historial remoto de Supabase son la fuente de verdad.
      flotante y se cierra al elegir, al tocar el fondo o con Escape (antes
      ocupaba todo el ancho encima del contenido). «Cierre de caja» pasa a
      llamarse «Caja», que ya no es solo el cierre.
+  8. **Prueba por roles** (`docs/PRUEBA_ROLES.md`): en `vetmake-dev` existe
+     la «Clínica Demo VetMake» (slug `demo-vetmake`) con cuatro usuarios
+     `admin|caja|vet|groomer@demo.vetmake.test` (contraseñas entregadas al
+     propietario, no en el repo), sus fichas en `pc_empleados`, 3 clientes,
+     4 servicios y 2 antiparasitarios. Se corrió la matriz de 24 operaciones
+     por rol en SQL simulando cada sesión (revertida): todo coincide con el
+     diseño. El botón «Nota de crédito» queda solo para admin (`vetMakeRol()`).
+     Hallazgo para Codex: el menú no filtra pestañas por rol.
 - Archivos principales: `index.html`, `scripts/validate.mjs`,
   `supabase/migrations/20261023180000_resultados_laboratorio.sql`,
   `supabase/migrations/20261023190000_comprobantes_fiscales_ncf.sql`,
