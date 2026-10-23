@@ -5,10 +5,15 @@ el historial remoto de Supabase son la fuente de verdad.
 
 ## Relevo de Claude — módulos nuevos de PetColinas (2026-10-23)
 
-> **Integrado en el candidato.** Por instrucción de Victor, Claude avanzó
-> `codex/import-catalog-duplicates` (PR #1) hasta estos commits (avance
-> directo desde `c61ad08`, sin conflictos). No se tocó `main` ni Pages. Falta la
-> prueba con sesión real de `docs/PRUEBA_ROLES.md` antes de publicar.
+> **Publicado (2026-10-23).** Por instrucción de Victor, Claude avanzó
+> `codex/import-catalog-duplicates` (PR #1) hasta estos commits y, después de
+> que Victor hizo la prueba por roles de `docs/PRUEBA_ROLES.md`, avanzó `main`
+> al mismo commit (`5b26bad..12a1d4f`, avance directo, CI en verde). GitHub
+> Pages publicó en https://victorbeltre.github.io/VetMake/. `main`, el
+> candidato y `claude/modulos-petcolinas-oct` apuntan al mismo commit.
+> Pendiente antes de abrir a clínicas reales: SMTP y URLs de Auth, protección
+> de contraseñas filtradas, quitar `fit13_*` de `vetmake-dev`, respaldos con las
+> tablas nuevas y filtrar el menú por rol.
 
 - Agente que entrega: Claude Code.
 - Rama: `claude/modulos-petcolinas-oct`, creada desde
