@@ -67,7 +67,8 @@ const SUPA_FUNCTIONS_URL = SUPA_URL + "/functions/v1";
 const VETMAKE_MULTI_TENANT_TABLES = new Set([
   "pc_clientes", "pc_ventas", "pc_facturas", "pc_inventario", "pc_empleados",
   "pc_gastos", "pc_citas", "pc_seguimientos", "pc_pagos", "pc_tarifas",
-  "pc_historias", "pc_fichas_clinicas", "pc_depositos", "pc_auditoria", "pc_paquetes", "vet_learning_aliases"
+  "pc_historias", "pc_fichas_clinicas", "pc_depositos", "pc_auditoria", "pc_paquetes", "vet_learning_aliases",
+  "pc_lab_resultados"
 ]);
 // Estas tablas solo aceptan cambios mediante RPC transaccionales. La misma
 // lista se usa en la capa HTTP y en useSupabase para impedir que un componente
@@ -148,6 +149,16 @@ function vetMakeBusinessTagline() {
 }
 function vetMakeBusinessLogo() {
   return String(getVetMakeBusiness().logo_url || "").trim();
+}
+// Datos de contacto de la clinica que inicio sesion. Vacio si no los cargo: nunca
+// se cae a los de otra clinica.
+function vetMakeBusinessField(k) { return String(getVetMakeBusiness()[k] || "").trim(); }
+function vetMakeBusinessPhone() { return vetMakeBusinessField("telefono"); }
+function vetMakeBusinessAddress() { return vetMakeBusinessField("direccion"); }
+function vetMakeBusinessEmail() { return vetMakeBusinessField("email"); }
+function vetMakeContactLine(sep = " \u00B7 ") {
+  const tel = vetMakeBusinessPhone();
+  return [vetMakeBusinessAddress(), tel && ("Tel: " + tel), vetMakeBusinessEmail()].filter(Boolean).join(sep);
 }
 function BusinessLogoMark({ size = 36 }) {
   const logo = vetMakeBusinessLogo();
@@ -10942,6 +10953,7 @@ function HistorialMedico({ clienteId, historias, setHistorias, deleteHistoria, c
   }
   const tipoColor = { "Consulta": "#1a4fa0", "Vacuna": "#1a6b3a", "Cirug\xEDa": "#b8232a", "Diagn\xF3stico": "#7c3aed", "Control": "#0891b2", "Desparasitaci\xF3n": "#d45f1e", "Otro": "#5a6472" };
   return React.createElement("div", null,
+    React.createElement(LabResultados, { clienteId, cliente }),
     mis.length === 0 && !agregando && React.createElement("div", { style: { color: "#5a6472", fontSize: 13, marginBottom: 10 } }, "Sin registros cl\xEDnicos."),
     mis.map(h => React.createElement("div", { key: h.id, style: { background: "#f8f9fa", borderRadius: 10, padding: "12px 14px", marginBottom: 10, border: "1px solid #e8ecf0" } },
       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 } },
@@ -11691,6 +11703,430 @@ function CRM({ clientes, setClientes, deleteCliente, onVirtualFusion, ventas, se
       "*Mascota:* " + (c.nombreMascota || c.nombremascota || "") + "\n" +
       bloque +
       "Le avisaremos por este mismo medio cuando su mascota est\xe9 lista. \u{1F4AC}\n\n_" + businessTagline + "_");
+// ─────────────────────────────────────────────────────────────────────────────
+// RESULTADOS DE LABORATORIO (hemograma) · M21
+//
+// REGLA DE ORO: los resultados NO se leen, NO se transcriben y NO se tocan. El
+// documento del laboratorio (la foto, o las paginas del PDF) se usa como IMAGEN
+// y se le pone alrededor la marca de la clinica. Cada numero queda exactamente
+// como lo imprimio el laboratorio, porque son sus mismos pixeles.
+//
+// Una primera version leia el documento (OCR / texto del PDF) y reescribia los
+// valores: al probarla con una foto cambio resultados. Se elimino por completo.
+//
+// Lo unico que se hace sobre la imagen: recortar el fondo, CUBRIR el logo del
+// laboratorio con un recuadro, y (opcional) teñir el texto de azul marino. El
+// resto del documento — nombre del laboratorio, direccion, firma, notas — se
+// conserva tal cual.
+// ─────────────────────────────────────────────────────────────────────────────
+const LAB_COLORES_BASE = {
+  naranja: [240, 138, 28], marino: [18, 31, 56], turquesa: [42, 163, 184],
+  gris: [90, 100, 114], claro: [244, 247, 249]
+};
+// La cabecera toma el color principal de la clinica (negocios.color_primario).
+const LAB_COLORES = new Proxy(LAB_COLORES_BASE, { get(t, k) {
+  if (k === "marino") {
+    const m = /^#?([0-9a-f]{6})$/i.exec(vetMakeBusinessField("color_primario"));
+    if (m) { const n = parseInt(m[1], 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+  }
+  return t[k];
+} });
+
+// jsPDF con fuentes estandar solo dibuja Latin-1: lo demas sale como basura. Solo
+// se usa para los textos de la clinica (cabecera y pie), nunca para resultados.
+const latinPDF = (t) => sinEmoji(String(t == null ? "" : t))
+  .replace(/[–—]/g, "-").replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+  .replace(/[^\x00-\xFF]/g, "?");
+
+// El logo real, si esta en el sitio como logo.png; si no, el nombre dibujado con
+// los colores de la marca. Nunca falla el PDF por falta del archivo.
+async function cargarLogoPC() {
+  try {
+    const src = vetMakeBusinessLogo();
+    if (!src) return null;
+    const r = await fetch(src, { cache: "force-cache" });
+    if (!r.ok) return null;
+    const b = await r.blob();
+    if (!/^image\//.test(b.type)) return null;
+    const url = await new Promise((ok, no) => { const f = new FileReader(); f.onload = () => ok(f.result); f.onerror = no; f.readAsDataURL(b); });
+    const dim = await new Promise((ok) => { const im = new Image(); im.onload = () => ok({ w: im.width, h: im.height }); im.onerror = () => ok(null); im.src = url; });
+    return dim ? { url, ...dim } : null;
+  } catch (e) { return null; }
+}
+
+const LAB_PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+const LAB_PDFJS_WORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const LAB_MAX_PAGINAS = 6, LAB_LADO_MAX = 2400;
+let _labPdfjs = null;
+function cargarPdfjsLab() {
+  if (!_labPdfjs) {
+    _labPdfjs = new Promise((ok, no) => {
+      if (window.pdfjsLib) return ok(window.pdfjsLib);
+      const s = document.createElement("script");
+      s.src = LAB_PDFJS;
+      s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = LAB_PDFJS_WORKER; ok(window.pdfjsLib); };
+      s.onerror = () => { _labPdfjs = null; no(new Error("No se pudo cargar el visor de PDF")); };
+      document.head.appendChild(s);
+    });
+  }
+  return _labPdfjs;
+}
+const cargarImagenLab = (url) => new Promise((ok, no) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => no(new Error("No se pudo abrir la imagen")); im.src = url; });
+
+// El documento como una lista de imagenes (una por pagina). Para un PDF se dibuja
+// cada pagina tal como se ve; para una foto, la foto. No se lee ni un caracter.
+async function paginasDeArchivo(file) {
+  const out = [];
+  if (file.type === "application/pdf") {
+    const pdfjs = await cargarPdfjsLab();
+    const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    for (let n = 1; n <= Math.min(pdf.numPages, LAB_MAX_PAGINAS); n++) {
+      const pag = await pdf.getPage(n);
+      const v1 = pag.getViewport({ scale: 1 });
+      const vp = pag.getViewport({ scale: Math.min(3, LAB_LADO_MAX / Math.max(v1.width, v1.height)) });
+      const cv = document.createElement("canvas"); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+      const cx = cv.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height);
+      await pag.render({ canvasContext: cx, viewport: vp }).promise;
+      out.push({ url: cv.toDataURL("image/jpeg", 0.95), w: cv.width, h: cv.height });
+    }
+    out.truncado = pdf.numPages > LAB_MAX_PAGINAS ? pdf.numPages : 0;
+  } else {
+    const url = await new Promise((ok, no) => { const f = new FileReader(); f.onload = () => ok(f.result); f.onerror = no; f.readAsDataURL(file); });
+    const im = await cargarImagenLab(url);
+    const k = Math.min(1, LAB_LADO_MAX / Math.max(im.width, im.height));
+    const cv = document.createElement("canvas"); cv.width = Math.round(im.width * k); cv.height = Math.round(im.height * k);
+    const cx = cv.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height);
+    cx.drawImage(im, 0, 0, cv.width, cv.height);
+    out.push({ url: cv.toDataURL("image/jpeg", 0.95), w: cv.width, h: cv.height });
+    out.truncado = 0;
+  }
+  return out;
+}
+
+// Lo unico que se le hace a una pagina: recortar, cubrir recuadros con blanco y,
+// si se pide, teñir. `ed.crop` y `ed.cubrir` van en fracciones (0 a 1) de la
+// pagina completa, asi no dependen del tamaño en pantalla.
+async function componerPaginaLab(pag, ed, tenir) {
+  const im = await cargarImagenLab(pag.url);
+  const c = (ed && ed.crop) || { x: 0, y: 0, w: 1, h: 1 };
+  const sx = Math.round(c.x * im.width), sy = Math.round(c.y * im.height);
+  const sw = Math.max(1, Math.round(c.w * im.width)), sh = Math.max(1, Math.round(c.h * im.height));
+  const cv = document.createElement("canvas"); cv.width = sw; cv.height = sh;
+  const cx = cv.getContext("2d");
+  cx.drawImage(im, sx, sy, sw, sh, 0, 0, sw, sh);
+  if (tenir) {
+    // Duotono: negro -> azul marino, blanco -> blanco. Cada pixel conserva su
+    // luminosidad, asi que los trazos (los numeros) no cambian de forma.
+    const d = cx.getImageData(0, 0, sw, sh), p = d.data, K = LAB_COLORES.marino;
+    for (let i = 0; i < p.length; i += 4) {
+      const t = (0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2]) / 255;
+      p[i] = K[0] + (255 - K[0]) * t; p[i + 1] = K[1] + (255 - K[1]) * t; p[i + 2] = K[2] + (255 - K[2]) * t;
+    }
+    cx.putImageData(d, 0, 0);
+  }
+  cx.fillStyle = "#ffffff";
+  ((ed && ed.cubrir) || []).forEach((r) => {
+    cx.fillRect(Math.round(r.x * im.width) - sx, Math.round(r.y * im.height) - sy, Math.round(r.w * im.width), Math.round(r.h * im.height));
+  });
+  return { url: cv.toDataURL("image/jpeg", 0.93), w: sw, h: sh };
+}
+
+// El PDF de la clinica: cabecera con logo y colores, datos del PACIENTE tomados del
+// sistema (no del documento), la pagina del laboratorio tal cual, y un pie que
+// dice de quien es el informe.
+function generarLabPDFDoc(paginas, meta, logo) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+  const K = LAB_COLORES, W = 210, M = 12, TOPE = 52, BASE = 278;
+  const cabecera = () => {
+    doc.setFillColor(...K.marino); doc.rect(0, 0, W, 34, "F");
+    doc.setFillColor(...K.naranja); doc.rect(0, 34, W, 2.2, "F");
+    doc.setFillColor(...K.turquesa); doc.rect(0, 36.2, W, 0.9, "F");
+    if (logo) {
+      const h = 26, w = Math.min(60, h * logo.w / logo.h);
+      doc.setFillColor(255, 255, 255); doc.roundedRect(M - 2, 4, w + 4, h, 2, 2, "F");
+      doc.addImage(logo.url, "PNG", M, 4, w, h);
+    } else {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(20);
+      doc.setTextColor(255, 255, 255); doc.text(latinPDF(vetMakeBusinessName()).slice(0, 28), M, 17);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(200, 215, 230);
+      if (vetMakeBusinessAddress()) doc.text(latinPDF(vetMakeBusinessAddress()).slice(0, 70), M, 24);
+      const contacto = [vetMakeBusinessPhone() && "Tel: " + vetMakeBusinessPhone(), vetMakeBusinessEmail()].filter(Boolean).join(" · ");
+      if (contacto) doc.text(latinPDF(contacto), M, 29);
+    }
+    doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(15);
+    doc.text("RESULTADOS DE HEMOGRAMA", W - M, 15, { align: "right" });
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(200, 215, 230);
+    doc.text(latinPDF("Fecha: " + (meta.fecha || "")), W - M, 22, { align: "right" });
+  };
+  const franja = () => {
+    doc.setFillColor(...K.claro); doc.rect(M, 41, W - 2 * M, 8, "F");
+    doc.setFillColor(...K.naranja); doc.rect(M, 41, 1.6, 8, "F");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...K.marino);
+    const partes = ["Paciente: " + (meta.paciente || "-"), meta.propietario ? "Propietario: " + meta.propietario : ""].filter(Boolean).join("   \u00B7   ");
+    doc.text(latinPDF(partes), M + 5, 46.2);
+  };
+  paginas.forEach((pg, i) => {
+    if (i > 0) doc.addPage();
+    cabecera(); franja();
+    const maxW = W - 2 * M, maxH = BASE - TOPE;
+    const k = Math.min(maxW / pg.w, maxH / pg.h), w = pg.w * k, h = pg.h * k, x = (W - w) / 2;
+    doc.addImage(pg.url, "JPEG", x, TOPE, w, h);
+    doc.setDrawColor(...K.turquesa); doc.setLineWidth(0.5); doc.rect(x, TOPE, w, h);
+  });
+  const total = doc.getNumberOfPages();
+  for (let p = 1; p <= total; p++) {
+    doc.setPage(p);
+    doc.setDrawColor(...K.turquesa); doc.setLineWidth(0.4); doc.line(M, 284, W - M, 284);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(...K.gris);
+    // Todo el documento es de la clinica: ninguna referencia al laboratorio original.
+    doc.text(latinPDF([vetMakeBusinessName(), vetMakeContactLine()].filter(Boolean).join(" · ")).slice(0, 120), M, 288);
+    doc.text("Pág. " + p + " de " + total, W - M, 288, { align: "right" });
+  }
+  return doc;
+}
+
+
+function LabResultados({ clienteId, cliente }) {
+  const E = React.createElement;
+  const [lista, setLista] = React.useState([]);
+  const [cargando, setCargando] = React.useState(true);
+  const [archivo, setArchivo] = React.useState(null);
+  const [leyendo, setLeyendo] = React.useState(false);
+  const [paginas, setPaginas] = React.useState(null);
+  const [error, setError] = React.useState("");
+  const [guardando, setGuardando] = React.useState(false);
+  const [abierto, setAbierto] = React.useState(false);
+
+  const cargar = React.useCallback(async () => {
+    try {
+      const r = await supaFetch("pc_lab_resultados", "GET", null,
+        "?clienteid=eq." + encodeURIComponent(String(clienteId)) + "&order=fecha.desc.nullslast,creado.desc");
+      setLista(Array.isArray(r) ? r : []);
+    } catch (e) { setLista([]); }
+    setCargando(false);
+  }, [clienteId]);
+  React.useEffect(() => { cargar(); }, [cargar]);
+
+  async function preparar() {
+    if (!archivo) return;
+    setError(""); setLeyendo(true);
+    try {
+      const pg = await paginasDeArchivo(archivo);
+      if (!pg.length) throw new Error("El documento no tiene páginas");
+      setPaginas(pg);
+    } catch (e) { setError("No se pudo abrir el documento: " + e.message); }
+    setLeyendo(false);
+  }
+
+  async function guardar({ ediciones, tenir, fecha }) {
+    setGuardando(true);
+    try {
+      const comp = [];
+      for (let i = 0; i < paginas.length; i++) comp.push(await componerPaginaLab(paginas[i], ediciones[i], tenir));
+      const logo = await cargarLogoPC();
+      const doc = generarLabPDFDoc(comp, {
+        fecha, paciente: (cliente && (cliente.nombreMascota || cliente.nombre)) || "",
+        propietario: (cliente && (cliente.nombrePropietario || cliente.dueno)) || ""
+      }, logo);
+      const pdfBlob = doc.output("blob");
+
+      const id = "lab_" + Date.now();
+      // Cada clinica sube a su carpeta (negocio_id/...): la politica del bucket lo exige.
+      const negocioId = (await obtenerContextoNegocio())?.negocioId;
+      if (!negocioId) throw new Error("Sin clínica activa");
+      const base = negocioId + "/" + String(clienteId).replace(/[^A-Za-z0-9_-]/g, "") + "/" + id;
+      const ext = archivo.type === "application/pdf" ? "pdf" : (archivo.type.split("/")[1] || "bin");
+      const subir = async (ruta, blob, tipo) => {
+        const r = await vetmakeAuthedFetch("/storage/v1/object/laboratorios/" + ruta, {
+          method: "POST", headers: { "Content-Type": tipo, "x-upsert": "false" }, body: blob });
+        if (!r || !r.ok) throw new Error("No se pudo guardar el archivo (" + r.status + ")");
+      };
+      await subir(base + "_original." + ext, archivo, archivo.type);
+      await subir(base + "_clinica.pdf", pdfBlob, "application/pdf");
+      const fila = { id, clienteid: String(clienteId), fecha, tipo: "hemograma", laboratorio: "",
+        datos: { paginas: comp.length, tenido: !!tenir, logo_cubierto: ediciones.some((e) => e && (e.cubrir || []).length > 0), recortado: ediciones.some((e) => e && e.crop) },
+        original_path: base + "_original." + ext, original_mime: archivo.type,
+        pdf_path: base + "_clinica.pdf", verificado_por: usuarioActual() };
+      const r = await supaFetch("pc_lab_resultados", "POST", [fila]);
+      if (r && r.error) throw new Error(JSON.stringify(r.error));
+      avisar("Hemograma guardado en la historia.", "ok");
+      doc.save("Hemograma_" + latinPDF((cliente && (cliente.nombreMascota || cliente.nombre)) || "paciente").replace(/[^A-Za-z0-9]+/g, "_") + "_" + fecha + ".pdf");
+      setPaginas(null); setArchivo(null); setAbierto(true); cargar();
+    } catch (e) { avisar("No se pudo guardar: " + e.message, "error"); }
+    setGuardando(false);
+  }
+
+  async function abrirFirmado(ruta) {
+    try {
+      const r = await vetmakeAuthedFetch("/storage/v1/object/sign/laboratorios/" + ruta, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expiresIn: 300 }) });
+      if (!r) throw new Error("sin sesión");
+      const o = await r.json();
+      if (!r.ok || !o.signedURL) throw new Error(o.message || "sin enlace");
+      window.open(SUPA_URL + "/storage/v1" + o.signedURL, "_blank");
+    } catch (e) { avisar("No se pudo abrir el archivo: " + e.message, "error"); }
+  }
+
+  const btn = (fondo, color, borde) => ({ background: fondo, color, border: "1.5px solid " + (borde || fondo),
+    borderRadius: 9, padding: "8px 14px", cursor: "pointer", fontSize: 12.5, fontWeight: 700 });
+
+  return E("div", { style: { border: "1.5px solid #cfe9ee", borderRadius: 12, padding: 14, marginBottom: 14, background: "#f4fafc" } },
+    E("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" } },
+      E("button", { onClick: () => setAbierto(!abierto), style: { background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", fontFamily: "inherit" } },
+        E("span", { style: { fontWeight: 800, fontSize: 14, color: "#121f38" } }, (abierto ? "▾ " : "▸ ") + "🩸 Resultados de laboratorio"),
+        E("span", { style: { fontSize: 12, color: "#5a6472", marginLeft: 8 } }, cargando ? "" : lista.length + " guardado(s)"))),
+
+    abierto && E("div", { style: { marginTop: 12 } },
+      E("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 6 } },
+        E("input", { type: "file", accept: "application/pdf,image/jpeg,image/png,image/webp",
+          onChange: (e) => { setArchivo(e.target.files[0] || null); setError(""); }, style: { fontSize: 12.5 } }),
+        archivo && E("button", { onClick: preparar, disabled: leyendo, style: btn("#f08a1c", "#fff") },
+          leyendo ? "Abriendo…" : "✨ Convertir a formato " + vetMakeBusinessName())),
+      E("div", { style: { fontSize: 11.5, color: "#5a6472", marginBottom: 10, lineHeight: 1.5 } },
+        "Los resultados NO se leen ni se reescriben: se usa la misma imagen del documento, sin nada del laboratorio original (le quitas el logo y sus datos) y con la marca de " + vetMakeBusinessName() + "."),
+      error && E("div", { style: { background: "#fdeaea", border: "1.5px solid #c0392b", color: "#c0392b", borderRadius: 9,
+        padding: "10px 12px", fontSize: 12.5, fontWeight: 600, marginBottom: 10 } }, error),
+      cargando ? null : lista.length === 0
+        ? E("div", { style: { color: "#5a6472", fontSize: 12.5 } }, "Aún no hay hemogramas guardados para este paciente.")
+        : lista.map((r) => E("div", { key: r.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center",
+            gap: 8, flexWrap: "wrap", background: "#fff", border: "1px solid #e0e4e8", borderRadius: 9, padding: "9px 12px", marginBottom: 7 } },
+            E("div", null,
+              E("div", { style: { fontWeight: 700, fontSize: 13 } }, "Hemograma · " + (r.fecha || "sin fecha")),
+              E("div", { style: { fontSize: 11.5, color: "#5a6472" } },
+                (r.datos && r.datos.paginas ? r.datos.paginas + " pág." : "") + (r.datos && r.datos.logo_cubierto ? " · logo cubierto" : ""))),
+            E("div", { style: { display: "flex", gap: 6 } },
+              r.pdf_path && E("button", { onClick: () => abrirFirmado(r.pdf_path), style: btn("#121f38", "#fff") }, "📄 PDF " + vetMakeBusinessName()),
+              r.original_path && E("button", { onClick: () => abrirFirmado(r.original_path), style: btn("#fff", "#334155", "#e0e4e8") }, "Ver original"))))),
+
+    paginas && E(ModalLabPreparar, {
+      paginas, archivo, ocupado: guardando, cliente,
+      onCerrar: () => setPaginas(null), onGuardar: guardar
+    }));
+}
+
+// Preparar el documento: se quita TODO lo que sea del laboratorio original (logo,
+// nombre, direccion, firma, marcas de agua) y se ve el resultado antes de generar.
+// No hay ningun campo de resultados: lo que hay en el documento no se puede cambiar.
+//  - Franjas de arriba y de abajo: se quitan de un golpe (ahi suelen estar el logo,
+//    el nombre, la direccion y la firma del laboratorio).
+//  - Recuadros: para lo que quede suelto (una marca de agua, un sello al costado).
+function ModalLabPreparar({ paginas, archivo, ocupado, cliente, onCerrar, onGuardar }) {
+  const E = React.createElement;
+  const [pi, setPi] = React.useState(0);
+  const [modo, setModo] = React.useState("cubrir");           // "cubrir" | "recortar"
+  const [eds, setEds] = React.useState(() => paginas.map(() => ({ crop: null, cubrir: [] })));
+  const [arr, setArr] = React.useState(null);                 // arrastre en curso
+  const [tenir, setTenir] = React.useState(false);
+  const [fecha, setFecha] = React.useState(hoy());
+  const [prev, setPrev] = React.useState(null);               // vista previa del resultado
+  const [armando, setArmando] = React.useState(false);
+  const caja = React.useRef(null);
+
+  const pg = paginas[pi], ed = eds[pi];
+  const setEd = (f) => setEds((x) => x.map((e, j) => j === pi ? f(e) : e));
+  const frac = (ev) => {
+    const r = caja.current && caja.current.getBoundingClientRect ? caja.current.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
+    const cl = (v) => Math.min(1, Math.max(0, v));
+    return { x: cl((ev.clientX - r.left) / (r.width || 1)), y: cl((ev.clientY - r.top) / (r.height || 1)) };
+  };
+  const rect = (a) => ({ x: Math.min(a.x0, a.x1), y: Math.min(a.y0, a.y1), w: Math.abs(a.x1 - a.x0), h: Math.abs(a.y1 - a.y0) });
+  const empezar = (ev) => { const p = frac(ev); setArr({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }); if (ev.currentTarget.setPointerCapture) { try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch (e) {} } };
+  const mover = (ev) => { if (arr) { const p = frac(ev); setArr({ ...arr, x1: p.x, y1: p.y }); } };
+  const soltar = () => {
+    if (!arr) return;
+    const r = rect(arr); setArr(null);
+    if (r.w < 0.01 || r.h < 0.01) return;                      // un clic suelto no es un recuadro
+    if (modo === "cubrir") setEd((e) => ({ ...e, cubrir: [...e.cubrir, r] }));
+    else setEd((e) => ({ ...e, crop: r }));
+  };
+  // Franjas: viven dentro del recorte (que es lo que se conserva).
+  const c0 = ed.crop || { x: 0, y: 0, w: 1, h: 1 };
+  const arriba = Math.round(c0.y * 100), abajo = Math.round((1 - c0.y - c0.h) * 100);
+  const franja = (cual, v) => {
+    const t = cual === "arriba" ? v / 100 : c0.y, bj = cual === "abajo" ? v / 100 : 1 - c0.y - c0.h;
+    const h = Math.max(0.1, 1 - t - bj);
+    setEd((e) => (t <= 0 && bj <= 0 && c0.x === 0 && c0.w === 1) ? { ...e, crop: null } : { ...e, crop: { x: c0.x, y: t, w: c0.w, h } });
+    setPrev(null);
+  };
+  async function verComoQueda() {
+    setArmando(true);
+    try { setPrev(await componerPaginaLab(pg, ed, tenir)); } catch (e) { avisar("No se pudo armar la vista previa: " + e.message, "error"); }
+    setArmando(false);
+  }
+  const pct = (v) => (v * 100) + "%";
+  const caja2 = (r, est, key) => E("div", { key, style: { position: "absolute", left: pct(r.x), top: pct(r.y), width: pct(r.w), height: pct(r.h), boxSizing: "border-box", pointerEvents: "none", ...est } });
+  const nCub = eds.reduce((s, e) => s + e.cubrir.length, 0);
+  const btn = (act) => ({ padding: "7px 12px", borderRadius: 8, border: "1.5px solid " + (act ? "#f08a1c" : "#d0d5db"), background: act ? "#fff3e3" : "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 700 });
+  const lbl = { fontSize: 10.5, fontWeight: 700, color: "#5a6472", textTransform: "uppercase", display: "block", marginBottom: 2 };
+  const inp = { padding: "6px 8px", borderRadius: 6, border: "1px solid #d0d5db", fontSize: 12.5, width: "100%", boxSizing: "border-box" };
+  const sombra = { background: "rgba(18,31,56,0.55)" };
+
+  return E("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 12 } },
+    E("div", { style: { background: "#fff", borderRadius: 14, width: "100%", maxWidth: 1000, maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden" } },
+      E("div", { style: { padding: "14px 18px", borderBottom: "1px solid #e0e4e8" } },
+        E("div", { style: { fontWeight: 800, fontSize: 16 } }, "Convertir a formato " + vetMakeBusinessName()),
+        E("div", { style: { fontSize: 12, color: "#5a6472", marginTop: 2, lineHeight: 1.5 } },
+          "Quita todo lo del laboratorio original (logo, nombre, direcci\u00F3n, firma, marcas de agua). Los resultados quedan EXACTAMENTE como est\u00E1n: no se leen ni se reescriben.")),
+      E("div", { style: { flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 18px" } },
+        paginas.length > 1 && E("div", { style: { display: "flex", gap: 6, alignItems: "center", fontSize: 12.5, marginBottom: 10 } },
+          E("button", { onClick: () => { setPi(Math.max(0, pi - 1)); setPrev(null); }, disabled: pi === 0, style: btn(false) }, "\u2190"),
+          "P\u00E1gina " + (pi + 1) + " de " + paginas.length,
+          E("button", { onClick: () => { setPi(Math.min(paginas.length - 1, pi + 1)); setPrev(null); }, disabled: pi === paginas.length - 1, style: btn(false) }, "\u2192")),
+
+        E("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginBottom: 12, background: "#f4f7f9", borderRadius: 10, padding: "10px 14px" } },
+          E("div", null, E("label", { style: lbl }, "Quitar la franja de ARRIBA: " + arriba + "%"),
+            E("input", { type: "range", min: 0, max: 45, step: 1, value: arriba, onChange: (e) => franja("arriba", Number(e.target.value)), style: { width: "100%" } }),
+            E("div", { style: { fontSize: 11, color: "#5a6472" } }, "Logo, nombre y direcci\u00F3n del laboratorio.")),
+          E("div", null, E("label", { style: lbl }, "Quitar la franja de ABAJO: " + abajo + "%"),
+            E("input", { type: "range", min: 0, max: 45, step: 1, value: abajo, onChange: (e) => franja("abajo", Number(e.target.value)), style: { width: "100%" } }),
+            E("div", { style: { fontSize: 11, color: "#5a6472" } }, "Firma, sello y pie del laboratorio."))),
+
+        E("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 } },
+          E("button", { onClick: () => setModo("cubrir"), style: btn(modo === "cubrir") }, "\u25AD Tapar un recuadro"),
+          E("button", { onClick: () => setModo("recortar"), style: btn(modo === "recortar") }, "\u2702 Elegir \u00E1rea a conservar"),
+          E("button", { onClick: () => { setEd((e) => ({ ...e, cubrir: e.cubrir.slice(0, -1) })); setPrev(null); }, disabled: !ed.cubrir.length, style: { ...btn(false), opacity: ed.cubrir.length ? 1 : 0.45 } }, "\u21B6 Quitar \u00FAltimo recuadro"),
+          ed.crop && E("button", { onClick: () => { setEd((e) => ({ ...e, crop: null })); setPrev(null); }, style: btn(false) }, "Quitar recorte")),
+        E("div", { style: { fontSize: 12, color: "#0f6f82", marginBottom: 8, fontWeight: 600 } },
+          modo === "cubrir" ? "Arrastra el rat\u00F3n sobre lo que quieras tapar (una marca de agua, un sello al costado\u2026). Puedes marcar varios."
+                            : "Arrastra para elegir la parte del documento que se conserva; lo de afuera se quita."),
+
+        prev
+          ? E("div", null,
+              E("div", { style: { fontSize: 12.5, fontWeight: 800, color: "#1a6b3a", marginBottom: 6 } }, "As\u00ED queda la p\u00E1gina " + (pi + 1) + " (la cabecera y el pie de " + vetMakeBusinessName() + " se agregan al generar). Revisa que no quede nada del laboratorio."),
+              E("div", { style: { width: "100%", maxWidth: 640, margin: "0 auto", border: "2px solid #2aa3b8", lineHeight: 0 } },
+                E("img", { src: prev.url, alt: "Vista previa", style: { width: "100%", display: "block" } })),
+              E("div", { style: { textAlign: "center", marginTop: 8 } }, E("button", { onClick: () => setPrev(null), style: btn(false) }, "\u2190 Seguir editando")))
+          : E("div", { ref: caja, onPointerDown: empezar, onPointerMove: mover, onPointerUp: soltar,
+              style: { position: "relative", width: "100%", maxWidth: 640, margin: "0 auto", cursor: "crosshair", touchAction: "none", userSelect: "none", border: "1.5px solid #cfd6dc", lineHeight: 0 } },
+              E("img", { src: pg.url, alt: "Documento original", draggable: false, style: { width: "100%", display: "block", pointerEvents: "none" } }),
+              ed.crop && caja2({ x: 0, y: 0, w: 1, h: ed.crop.y }, sombra, "c1"),
+              ed.crop && caja2({ x: 0, y: ed.crop.y + ed.crop.h, w: 1, h: 1 - ed.crop.y - ed.crop.h }, sombra, "c2"),
+              ed.crop && caja2({ x: 0, y: ed.crop.y, w: ed.crop.x, h: ed.crop.h }, sombra, "c3"),
+              ed.crop && caja2({ x: ed.crop.x + ed.crop.w, y: ed.crop.y, w: 1 - ed.crop.x - ed.crop.w, h: ed.crop.h }, sombra, "c4"),
+              ed.crop && caja2(ed.crop, { border: "2px dashed #2aa3b8" }, "c5"),
+              ed.cubrir.map((r, i) => caja2(r, { background: "#fff", border: "2px solid #f08a1c" }, "v" + i)),
+              arr && caja2(rect(arr), { border: "2px dashed " + (modo === "cubrir" ? "#f08a1c" : "#2aa3b8"), background: modo === "cubrir" ? "rgba(240,138,28,0.18)" : "rgba(42,163,184,0.12)" }, "arr")),
+
+        E("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", marginTop: 14, alignItems: "flex-end" } },
+          E("div", { style: { flex: "0 0 150px" } }, E("label", { style: lbl }, "Fecha del resultado"),
+            E("input", { type: "date", value: fecha, onChange: (e) => setFecha(e.target.value), style: inp })),
+          E("button", { onClick: verComoQueda, disabled: armando, style: btn(false) }, armando ? "Armando\u2026" : "\uD83D\uDC41 Ver c\u00F3mo queda")),
+        E("label", { style: { display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, marginTop: 12, cursor: "pointer", lineHeight: 1.45 } },
+          E("input", { type: "checkbox", checked: tenir, onChange: (e) => { setTenir(e.target.checked); setPrev(null); }, style: { marginTop: 2 } }),
+          E("span", null, E("strong", null, "Te\u00F1ir el texto del color de la cl\u00EDnica. "),
+            "Los n\u00FAmeros no cambian de forma, pero lo que el laboratorio marc\u00F3 en color (por ejemplo un valor alto en rojo) pasa a azul. D\u00E9jalo apagado si tu laboratorio se\u00F1ala as\u00ED los valores fuera de rango."))),
+      E("div", { style: { padding: "12px 18px", borderTop: "1px solid #e0e4e8", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" } },
+        E("div", { style: { flex: 1, fontSize: 12, color: "#5a6472", minWidth: 200 } },
+          (arriba || abajo ? "Se quita " + (arriba ? arriba + "% de arriba" : "") + (arriba && abajo ? " y " : "") + (abajo ? abajo + "% de abajo" : "") + ". " : "") +
+          (nCub ? nCub + " recuadro(s) tapando. " : "") +
+          (!arriba && !abajo && !nCub && !ed.crop ? "A\u00FAn no quitas nada del laboratorio: usa \u00ABVer c\u00F3mo queda\u00BB para revisar." : "")),
+        E("button", { onClick: onCerrar, disabled: ocupado, style: { padding: "10px 16px", borderRadius: 9, border: "1.5px solid #e0e4e8", background: "#f8f9fa", cursor: "pointer", fontWeight: 700 } }, "Cancelar"),
+        E("button", { onClick: () => onGuardar({ ediciones: eds, tenir, fecha }), disabled: ocupado || !fecha,
+          style: { padding: "10px 18px", borderRadius: 9, border: "none", background: ocupado ? "#aab3bd" : "#f08a1c", color: "#fff", cursor: ocupado ? "default" : "pointer", fontWeight: 800 } },
+          ocupado ? "Generando\u2026" : "Generar PDF " + vetMakeBusinessName()))));
+}
+
   }
 }, "\u{1F4AC} WhatsApp Bienvenida"),
 /* Botón Mascota Lista */

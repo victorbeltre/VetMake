@@ -52,7 +52,7 @@ const migrations = fs.readdirSync(migrationDir)
   .filter((name) => name.endsWith(".sql"))
   .sort();
 
-check(migrations.length === 39, `Se esperaban 39 migraciones y se encontraron ${migrations.length}.`);
+check(migrations.length === 40, `Se esperaban 40 migraciones y se encontraron ${migrations.length}.`);
 const versions = new Set();
 for (const name of migrations) {
   const match = name.match(/^(\d{14})_(.+)\.sql$/);
@@ -104,7 +104,15 @@ for (const file of [
   check(!/sb_secret_[A-Za-z0-9_-]+/.test(source), `${path.relative(root, file)} contiene una clave secreta literal.`);
 }
 
-warn(/PetColinas|MASCOTAS_CASA|PETCOLINAS_RNC/.test(html), "Persisten referencias ejecutables heredadas de PetColinas.");
+// Hemogramas: el documento del laboratorio se usa como IMAGEN. En PetColinas una
+// versión que lo leía (IA, luego OCR) cambió resultados al probarla con una foto.
+for (const lector of ["parsearFilasLab", "datosDeTexto", "leerDocumentoLab", "ocrLab", "leerPDFLab", "plantillaLab"]) {
+  check(!html.includes(lector), `Laboratorio: reapareció ${lector}; los resultados no se leen ni se transcriben.`);
+}
+check(!/tesseract/i.test(html), "Laboratorio: aparece tesseract (OCR); los resultados no se leen.");
+check(!/fetch\(\s*["']logo\.png["']/.test(html), "Laboratorio: el PDF debe usar el logo de la clínica (negocios.logo_url), no un logo.png fijo.");
+
+warn(/PetColinas|MASCOTAS_CASA|PETCOLINAS_RNC/.test(html),"Persisten referencias ejecutables heredadas de PetColinas.");
 warn(/\/functions\/v1\/(?:vapi-trigger|calendar-sync|pagadito-cobro)/.test(html), "Persisten llamadas a integraciones no versionadas/desplegadas.");
 warn((html.match(/localStorage/g) || []).length > 0, `Persisten ${(html.match(/localStorage/g) || []).length} referencias a localStorage.`);
 
