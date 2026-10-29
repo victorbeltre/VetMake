@@ -3,6 +3,40 @@
 Este archivo resume el estado comprobable del trabajo activo. El repositorio y
 el historial remoto de Supabase son la fuente de verdad.
 
+## Relevo de Claude — listo para producción, parte 1 (2026-10-29)
+
+- Rama `claude/listo-produccion`, creada desde `claude/membresias-planes`
+  (incluye las membresías; fusionar esa primero o esta sola).
+- **NCF / facturas de ventas** (`20261029224457_facturas_desde_ventas_origen`,
+  APLICADA en `vetmake-dev`): la lista muestra las facturas de ventas con su id
+  derivado `venta_...` aunque estén guardadas con un uuid y `origen_ref`.
+  Editarlas mandaba el id derivado → `setFacturas` lo veía como factura nueva →
+  `crear_factura` → otra fila SIN NCF. Ahora:
+  - Frontend (edición en el módulo de facturas): busca la fila guardada por id
+    u `origenRef` y edita ESA (→ `actualizar_factura`); `origenRef` sigue al id
+    derivado si cambian fecha o mascota; ya no llama `deleteOne` con ids
+    `venta_...`. `ejecutarMutacionProtegida` manda `origenRef` al crear y la
+    lista confirmada de facturas se deduplica por id.
+  - Servidor: `crear_factura` guarda `origen_ref` y, si ya existe esa
+    `origen_ref`, corrige la misma fila vía `actualizar_factura` (exige admin)
+    en vez de insertar; `actualizar_factura` actualiza `origen_ref` cuando llega
+    un `origenRef` `venta_...`.
+  - Probado: SQL con ROLLBACK (misma fila al repetir, origen actualizado, caja no
+    puede corregir) y Playwright simulado (editar factura con NCF → una sola
+    llamada `actualizar_factura` con el uuid real, ninguna `crear_factura`).
+- **Respaldos** (`20261029224718_respaldo_tablas_completas`, APLICADA): lista
+  única `private.respaldo_tablas()` (30 tablas: + NCF, notas de crédito,
+  laboratorio, caja, cuentas, traslados, saldos y membresías); formato v3;
+  `probar_respaldo_negocio()` informa `tablas_sin_respaldo` y da `exito=false`
+  si aparece una tabla con `negocio_id` sin respaldo. Probado como admin de la
+  demo: `exito: true`, 30 tablas, `tablas_sin_respaldo: []`.
+- `docs/PUESTA_EN_PRODUCCION.md`: dominio (app en `app.<dominio>` con GitHub
+  Pages), URLs de Auth, `VETMAKE_SITE_URL`, SMTP con Resend gratis y checklist
+  previo a la primera clínica. La app ya arma enlaces con
+  `window.location.origin`: no hay URLs fijas que cambiar en el código.
+- Sin tocar: tablas `fit13_*` (datos de otra app; moverlas, no borrarlas).
+- `scripts/validate.mjs`: 47 migraciones.
+
 ## Relevo de Claude — membresías de VetMake (2026-10-29)
 
 - Agente que entrega: Claude Code. Rama `claude/membresias-planes`, desde

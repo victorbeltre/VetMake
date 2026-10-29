@@ -789,6 +789,10 @@ async function ejecutarMutacionProtegida(tabla, accion, fila, anterior, opciones
 
   if (tabla === "pc_facturas") {
     if (accion === "create") {
+      // Factura armada desde ventas: su id derivado ("venta_...") viaja como
+      // origenRef. Si ya estaba guardada, el servidor corrige ESA fila (y su
+      // NCF se conserva) en vez de crear otra.
+      if (!datos.origenRef && String(fila?.id || "").startsWith("venta_")) datos.origenRef = String(fila.id);
       delete datos.id;
       delete datos.numero;
       respuesta = await supaRpc("crear_factura", { factura: datos });
@@ -1280,6 +1284,17 @@ function useSupabase(table, seed = []) {
           );
         });
         confirmadas = confirmadas.filter((fila) => filaVisibleEnOperacion(table, fila));
+        // crear_factura puede devolver una fila que ya estaba en la lista
+        // (factura de ventas guardada antes): se deja una sola copia.
+        if (table === "pc_facturas") {
+          const vistos = new Set();
+          confirmadas = confirmadas.filter((fila) => {
+            const id = String(fila?.id);
+            if (vistos.has(id)) return false;
+            vistos.add(id);
+            return true;
+          });
+        }
         dataRef.current = confirmadas;
         setData(confirmadas);
         if (typeof window.__notifSyncOk === "function") window.__notifSyncOk();
@@ -4162,19 +4177,31 @@ function Facturas({ ventas, setVentas, deleteVenta, clientes, citas = [], setCit
       // El NCF sobrevive a la edicion: ya se le entrego al cliente y cuenta en la
       // secuencia de la DGII. Editar cambia lineas y montos, nunca el comprobante.
       const fiscalPrevio = editandoOrig || {};
-      const editada = { ...nueva, id: idFinal, numero, autoGenerada: false,
-        ncf: fiscalPrevio.ncf || "", ncfTipo: fiscalPrevio.ncfTipo || "", rncCliente: fiscalPrevio.rncCliente || "",
-        origenRef: fiscalPrevio.origenRef || "" };
+      // La lista muestra las facturas de ventas con su id derivado ("venta_..."),
+      // aunque ya estén guardadas con un id propio y origen_ref = ese derivado
+      // (pasa al asignarles NCF). Hay que editar ESA fila: si se mandara el id
+      // derivado, setFacturas lo tomaría por factura nueva y crearía otra sin NCF.
+      const guardada = (facturas || []).find((f) =>
+        String(f.id) === String(editandoId) || (f.origenRef && String(f.origenRef) === String(editandoId)));
+      const idGuardado = guardada && !String(guardada.id).startsWith("venta_") ? String(guardada.id) : null;
+      const editada = { ...nueva, id: idGuardado || idFinal, numero, autoGenerada: false,
+        ncf: fiscalPrevio.ncf || (guardada && guardada.ncf) || "", ncfTipo: fiscalPrevio.ncfTipo || (guardada && guardada.ncfTipo) || "",
+        rncCliente: fiscalPrevio.rncCliente || (guardada && guardada.rncCliente) || "",
+        origenRef: esDeVentas ? idFinal : (fiscalPrevio.origenRef || (guardada && guardada.origenRef) || "") };
       // Registro de auditoría con el detalle de lo que cambió en la factura.
       try {
         const cambios = diffAuditoria(editandoOrig || {}, editada);
         if (cambios.length) auditar("pc_facturas", "editar", editada, cambios);
       } catch (e) { console.warn("[Auditoría factura]", e); }
       setFacturas((fs) => {
-        const sinViejas = fs.filter((f) => String(f.id) !== String(editandoId) && String(f.id) !== String(idFinal));
+        const sinViejas = fs.filter((f) => String(f.id) !== String(editandoId) && String(f.id) !== String(idFinal) && String(f.id) !== String(editada.id));
         return [editada, ...sinViejas];
       });
-      if (idFinal !== editandoId) deleteOne("pc_facturas", editandoId).catch(() => {});
+      // Solo se borra si el id viejo era una fila real distinta de la editada.
+      // Un id "venta_..." nunca está en la base (anularlo fallaría o, peor,
+      // tocaría otra factura).
+      if (!idGuardado && idFinal !== editandoId && !String(editandoId).startsWith("venta_") &&
+          (facturas || []).some((f) => String(f.id) === String(editandoId))) deleteOne("pc_facturas", editandoId).catch(() => {});
       setFacturaActual(editada);
     } else {
       setFacturas((fs) => [nueva, ...fs]);
