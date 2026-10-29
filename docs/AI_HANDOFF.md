@@ -3,6 +3,63 @@
 Este archivo resume el estado comprobable del trabajo activo. El repositorio y
 el historial remoto de Supabase son la fuente de verdad.
 
+## Relevo de Claude — membresías de VetMake (2026-10-29)
+
+- Agente que entrega: Claude Code. Rama `claude/membresias-planes`, desde
+  `origin/main` (`8491d29`).
+- Objetivo: poder cobrarle a las clínicas. Decisiones de Victor: planes por
+  clínica Esencial RD$1,990 (2 usuarios), Clínica RD$3,490 (6) y Clínica Plus
+  RD$5,990 (ilimitados; «varias sucursales» = próximamente); anual = 10 meses;
+  cobro por transferencia anotado a mano; 7 días de gracia y luego SOLO LECTURA.
+- Supabase (`vetmake-dev`): migración `20261029223252_membresias_vetmake.sql`
+  YA APLICADA (la versión del archivo coincide con la del historial remoto).
+  - Tablas `vetmake_planes`, `vetmake_suscripciones` (una por clínica),
+    `vetmake_pagos`, `vetmake_superadmins`, `vetmake_plataforma_config`. RLS
+    activo; solo `vetmake_planes` es legible; lo demás va por RPC (el aviso
+    `rls_enabled_no_policy` de esas tablas es intencional).
+  - Solo lectura: trigger `vetmake_membresia_vigente` (BEFORE I/U/D) en todas
+    las tablas con `negocio_id` salvo `pc_auditoria`, `usuarios_negocio` y
+    `vet_learning_aliases`. Bloquea solo peticiones `authenticated`/`anon`
+    (también dentro de RPC SECURITY DEFINER); `service_role` y migraciones
+    escriben. Error P0001 con `hint = 'vetmake_membresia_vencida'`.
+    **Toda tabla nueva con `negocio_id` debe recibir este trigger.**
+  - Límite de usuarios: trigger `vetmake_limite_usuarios` en
+    `usuarios_negocio` (hint `vetmake_limite_usuarios`).
+  - Clínica nueva → prueba de 14 días, plan Clínica (trigger
+    `vetmake_a_membresia_inicial`). Las 4 clínicas existentes quedaron en
+    `cortesia` / Clínica Plus. Superadmin: `petcolinasrd@gmail.com`.
+  - RPC: `mi_membresia()`; `plataforma_soy_admin()`, `plataforma_resumen()`,
+    `plataforma_registrar_pago(...)` (mueve el vencimiento: desde `vence_el`
+    si está al día o en gracia, desde hoy si estaba en solo lectura/cortesía),
+    `plataforma_anular_pago(id)` (solo el último; restaura vencimiento, plan,
+    ciclo y estado), `plataforma_guardar_membresia(...)`,
+    `plataforma_guardar_config(...)`; `membresia_cupo(negocio)` solo
+    service_role.
+  - Probado en transacciones con ROLLBACK contra `vetmake-dev`, con
+    `role authenticated` real: bloqueo en solo lectura, escritura en gracia y
+    con service_role, sin acceso directo a las tablas, no-superadmin rechazado,
+    bajar de plan con exceso de usuarios rechazado, cálculo de vencimientos,
+    anulación en cadena, prueba de 14 días y cuentas base de clínica nueva.
+- Frontend (`index.html`, versión `20261029-membresias-v16`):
+  `AvisoMembresia` (barra inferior en los 4 roles: prueba ≤5 días, por
+  vencer, en gracia, solo lectura fija), `ModalComoPagar`, Configuración →
+  «💳 Mi plan» (`MiMembresia`) y `PanelPlataforma` (se abre solo para
+  superadmins: sin clínica, o con `?plataforma` / botón «Panel VetMake»).
+  `supaRpc` y `supaFetch` disparan el modal al recibir el hint de bloqueo.
+  Probado con Playwright y Supabase simulado (4 escenarios, sin errores JS).
+- Edge Function `vetmake-admin`: comprueba plan y cupo ANTES de invitar y
+  borra el usuario invitado si la membresía falla. **Pendiente de desplegar**
+  (al agente se le negó el despliegue). Mientras tanto el trigger igual
+  impide pasar el límite, pero la versión vieja puede dejar un usuario de
+  Auth invitado sin clínica.
+- `scripts/validate.mjs`: 45 migraciones.
+- Pasos para Codex: revisar, `node scripts/validate.mjs`, desplegar
+  `vetmake-admin` (verify_jwt = true), probar con sesión real como
+  `petcolinasrd@gmail.com` (panel) y como admin de la demo (Mi plan), y
+  fusionar en `main`.
+- Riesgo: cada escritura hace una consulta más (`membresia_estado`); los
+  lotes de importación están limitados a 200 filas, así que el costo es bajo.
+
 ## Relevo de Claude — módulos nuevos de PetColinas (2026-10-23)
 
 > **Publicado (2026-10-23).** Por instrucción de Victor, Claude avanzó

@@ -11,7 +11,7 @@
   <script>
     // Auto-actualización: si la versión cambió, recarga forzada
     (function() {
-      var V = "20260825-inteligencia-vetmake-v15";
+      var V = "20261029-membresias-v16";
       var stored = localStorage.getItem("pc_app_version");
       if (stored !== V) {
         localStorage.setItem("pc_app_version", V);
@@ -521,6 +521,7 @@ async function supaFetch(table, method = "GET", body = null, params = "") {
     let errBody = null;
     try { errBody = await res.json(); } catch {}
     console.error(`[supaFetch] ${method} ${table} ${res.status}`, errBody || "");
+    if (errBody && errBody.hint === "vetmake_membresia_vencida") avisarBloqueoMembresia();
     if (typeof window.__notifSyncError === "function" && (method === "PATCH" || method === "DELETE")) window.__notifSyncError(table + " " + method + " " + res.status);
     return { error: errBody || res.status };
   }
@@ -535,7 +536,10 @@ async function supaRpc(nombre, argumentos = {}) {
   });
   if (!respuesta) throw new Error("La sesión no está disponible.");
   const datos = await respuesta.json().catch(() => ({}));
-  if (!respuesta.ok) throw new Error(vetmakeErrorMessage(datos));
+  if (!respuesta.ok) {
+    if (datos && datos.hint === "vetmake_membresia_vencida") avisarBloqueoMembresia();
+    throw new Error(vetmakeErrorMessage(datos));
+  }
   return datos;
 }
 
@@ -5840,6 +5844,15 @@ function PetColinas() {
   const [tenant, setTenant] = useState(() => VETMAKE_TENANT_CONTEXT);
   const [tenantChecked, setTenantChecked] = useState(() => !session);
   const [tenantError, setTenantError] = useState("");
+  // Panel VetMake: solo para el equipo de VetMake (tabla vetmake_superadmins).
+  const [esSuperadmin, setEsSuperadmin] = useState(false);
+  const [verPanelPlataforma, setVerPanelPlataforma] = useState(() => new URLSearchParams(window.location.search).has("plataforma"));
+  useEffect(() => {
+    if (!session?.access_token) { setEsSuperadmin(false); return undefined; }
+    let vivo = true;
+    supaRpc("plataforma_soy_admin").then((r) => { if (vivo) setEsSuperadmin(r === true); }).catch(() => { if (vivo) setEsSuperadmin(false); });
+    return () => { vivo = false; };
+  }, [session?.user?.id]);
   // Hooks siempre al tope — antes de cualquier return condicional (reglas de React)
   const [ventasVet, setVentasVet]   = useSupabase("pc_ventas", []);
   const setVentas = setVentasVet;
@@ -5976,6 +5989,7 @@ function PetColinas() {
   if (authFlow?.session && (authFlow.mode === "invite" || authFlow.mode === "recovery")) return React.createElement(AuthPasswordScreen, { session: authFlow.session, mode: authFlow.mode, onComplete: (next) => { sessionStorage.setItem(VETMAKE_SESSION_KEY, JSON.stringify(next)); setAuthFlow(null); setSession(next); }, onCancel: () => { sessionStorage.removeItem(VETMAKE_SESSION_KEY); setAuthFlow(null); setSession(null); } });
   if (!session) return /* @__PURE__ */ React.createElement(WAPreviewModal, null), /* @__PURE__ */ React.createElement(LoginScreen, { onLogin: handleLogin, initialError: authFlow?.mode === "error" ? authFlow.error : "" });
   if (!tenantChecked) return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f5f6" } }, /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 48, marginBottom: 12 } }, "\u{1F43E}"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 16, color: "#5a6472" } }, "Preparando tu espacio VetMake...")));
+  if (esSuperadmin && (!tenant || verPanelPlataforma)) return React.createElement(PanelPlataforma, { onLogout: handleLogout, onVolver: tenant ? () => setVerPanelPlataforma(false) : null });
   if (!tenant) return /* @__PURE__ */ React.createElement("div", { style: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f5f6", padding: 20 } }, /* @__PURE__ */ React.createElement("div", { style: { background: "#fff", borderRadius: 16, padding: "32px 28px", maxWidth: 440, textAlign: "center", boxShadow: "0 8px 30px rgba(0,0,0,.08)" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 42, marginBottom: 10 } }, "\u{1F512}"), /* @__PURE__ */ React.createElement("h2", { style: { margin: "0 0 10px", color: "#1a6b3a" } }, "Cuenta sin clínica asignada"), /* @__PURE__ */ React.createElement("p", { style: { color: "#5a6472", lineHeight: 1.5, margin: "0 0 20px" } }, tenantError || "Esta cuenta todavía no pertenece a un negocio de VetMake. El administrador debe asignarte una clínica."), /* @__PURE__ */ React.createElement("button", { onClick: handleLogout, style: { background: "#1a6b3a", color: "#fff", border: "none", borderRadius: 9, padding: "11px 20px", fontWeight: 700, cursor: "pointer" } }, "Cerrar sesión")));
 
   const isCaja = tenant.rol === "caja";
@@ -5983,7 +5997,7 @@ function PetColinas() {
   const isGrm = tenant.rol === "groomer";
 
   if (isCaja) return React.createElement(React.Fragment, null,
-    React.createElement(VigilanteVersion, null), React.createElement(WAPreviewModal, null),
+    React.createElement(VigilanteVersion, null), React.createElement(WAPreviewModal, null), React.createElement(AvisoMembresia, null),
     React.createElement(PortalCaja, {
       session, tenant, onLogout: handleLogout,
       ventas: ventasVet, setVentas: setVentasVet,
@@ -5998,7 +6012,7 @@ function PetColinas() {
       marcarNotifLeidas: marcarNotifsCaja, desmarcarNotif: desmarcarNotifCaja
     }));
 
-  if (isVet) return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(WAPreviewModal, null), /* @__PURE__ */ React.createElement(PortalVeterinaria, {
+  if (isVet) return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(WAPreviewModal, null), React.createElement(AvisoMembresia, null), /* @__PURE__ */ React.createElement(PortalVeterinaria, {
     session, tenant, empleados: empleadosVet, tarifasGrooming: (tarifasCaja || []).filter((t) => t.area === "grooming"), tarifasVet: (tarifasCaja || []).filter((t) => t.area === "vet"), onLogout: handleLogout,
     ventas: ventasVet, setVentas: setVentasVet,
     clientes: clientesVet, setClientes: setClientesVet,
@@ -6007,7 +6021,7 @@ function PetColinas() {
     fichas: fichasVet, setFichas: setFichasVet
   }));
 
-  if (isGrm) return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(WAPreviewModal, null), /* @__PURE__ */ React.createElement(PortalGroomer, {
+  if (isGrm) return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(WAPreviewModal, null), React.createElement(AvisoMembresia, null), /* @__PURE__ */ React.createElement(PortalGroomer, {
     session, tenant, empleados: empleadosVet, tarifasGrooming: (tarifasCaja || []).filter((t) => t.area === "grooming"), tarifasVet: (tarifasCaja || []).filter((t) => t.area === "vet"), onLogout: handleLogout,
     ventas: ventasVet, setVentas: setVentasVet,
     pagosNom: pagosNomVet || [],
@@ -6015,7 +6029,7 @@ function PetColinas() {
     citas: citasPortal, setCitas: setCitasPortal
   }));
 
-  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(VigilanteVersion, null), React.createElement(WAPreviewModal, null), /* @__PURE__ */ React.createElement(PetColinasApp, { session, tenant, onLogout: handleLogout, onTenantChange: setTenant, empleados: empleadosVet, setEmpleados: setEmpleadosVet, empleadosLoaded: empleadosLoadedVet, deleteEmpleado: deleteEmpleadoVet, refetchEmpleados: refetchEmpleadosVet }));
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(VigilanteVersion, null), React.createElement(WAPreviewModal, null), React.createElement(AvisoMembresia, null), esSuperadmin && React.createElement("button", { onClick: () => setVerPanelPlataforma(true), title: "Panel VetMake", style: { position: "fixed", right: 14, top: 14, zIndex: 10030, background: "#1a1d23", color: "#fff", border: "none", borderRadius: 999, padding: "6px 11px", fontSize: 11, fontWeight: 800, cursor: "pointer", opacity: 0.85 } }, "Panel VetMake"), /* @__PURE__ */ React.createElement(PetColinasApp, { session, tenant, onLogout: handleLogout, onTenantChange: setTenant, empleados: empleadosVet, setEmpleados: setEmpleadosVet, empleadosLoaded: empleadosLoadedVet, deleteEmpleado: deleteEmpleadoVet, refetchEmpleados: refetchEmpleadosVet }));
 }
 const INVENTARIO_SEED = [];
 function ModalPagosPendientes({ ventas, setVentas, clientes, onClose }) {
@@ -6429,6 +6443,363 @@ function Reporte607() {
                 E("thead", null, E("tr", null, COLUMNAS_607.map(([k, t]) => E("th", { key: k, style: th }, t)))),
                 E("tbody", null, filas.map((f) => E("tr", { key: f.ncf }, COLUMNAS_607.map(([k]) => E("td", { key: k, style: td }, valor(f, k)))))))))));
 }
+// ─── MEMBRESÍAS DE VETMAKE (oct 2026) ───────────────────────────────────────
+// Cada clínica paga un plan (Esencial, Clínica, Clínica Plus). Se cobra por
+// transferencia: Victor anota el pago en el Panel VetMake (?plataforma) y el
+// servidor mueve el vencimiento. Vencido el plan hay 7 días de gracia; después
+// la base de datos rechaza toda escritura (modo solo lectura) — aquí solo se
+// AVISA; quien hace cumplir es el trigger vetmake_membresia_vigente.
+const MEMBRESIA_EVENTO = "vetmake-membresia";
+const MEMBRESIA_ETIQUETAS = {
+  prueba: { texto: "Prueba gratis", color: "#1a4fa0", fondo: "#e8effd" },
+  activa: { texto: "Al día", color: "#166534", fondo: "#e6f4ec" },
+  por_vencer: { texto: "Por vencer", color: "#92400e", fondo: "#fdf6e3" },
+  en_gracia: { texto: "Vencida · en gracia", color: "#c2410c", fondo: "#fff0e8" },
+  solo_lectura: { texto: "Solo lectura", color: "#b8232a", fondo: "#fdeaea" },
+  cancelada: { texto: "Cancelada", color: "#b8232a", fondo: "#fdeaea" },
+  cortesia: { texto: "Cortesía", color: "#5b21b6", fondo: "#f3effd" },
+  sin_plan: { texto: "Sin plan", color: "#5a6472", fondo: "#f4f5f6" }
+};
+function membresiaRD(n) { return "RD$" + (Number(n) || 0).toLocaleString("es-DO", { maximumFractionDigits: 0 }); }
+function membresiaFecha(iso) {
+  if (!iso) return "—";
+  const d = new Date(String(iso).slice(0, 10) + "T12:00:00");
+  return isNaN(d) ? String(iso) : d.toLocaleDateString("es-DO", { day: "numeric", month: "long", year: "numeric" });
+}
+function membresiaDiasTexto(n) { n = Math.abs(Number(n) || 0); return n + (n === 1 ? " día" : " días"); }
+function membresiaWhatsApp(numero, texto) {
+  const tel = String(numero || "18297446060").replace(/\D/g, "");
+  return "https://wa.me/" + tel + "?text=" + encodeURIComponent(texto || "");
+}
+function avisarBloqueoMembresia() {
+  try { window.dispatchEvent(new CustomEvent(MEMBRESIA_EVENTO, { detail: { bloqueo: true } })); } catch (e) {}
+}
+function EtiquetaMembresia({ estado }) {
+  const e = MEMBRESIA_ETIQUETAS[estado] || MEMBRESIA_ETIQUETAS.sin_plan;
+  return React.createElement("span", { style: { display: "inline-block", padding: "3px 9px", borderRadius: 999, background: e.fondo, color: e.color, fontSize: 11, fontWeight: 800, whiteSpace: "nowrap" } }, e.texto);
+}
+
+// Hook: lee mi_membresia y se refresca con el evento o cada 30 minutos.
+function useMiMembresia(activo = true) {
+  const [datos, setDatos] = React.useState(null);
+  const [error, setError] = React.useState("");
+  const cargar = React.useCallback(async () => {
+    try { setDatos(await supaRpc("mi_membresia")); setError(""); }
+    catch (e) { setError(vetmakeErrorMessage(e, "No se pudo leer la membresía.")); }
+  }, []);
+  React.useEffect(() => {
+    if (!activo) return undefined;
+    cargar();
+    const t = setInterval(cargar, 30 * 60 * 1000);
+    const alEvento = () => cargar();
+    window.addEventListener(MEMBRESIA_EVENTO, alEvento);
+    return () => { clearInterval(t); window.removeEventListener(MEMBRESIA_EVENTO, alEvento); };
+  }, [activo, cargar]);
+  return { datos, error, recargar: cargar };
+}
+
+function ModalComoPagar({ m, onClose }) {
+  const E = React.createElement;
+  const clinica = vetMakeBusinessName();
+  const texto = "Hola VetMake, soy de " + clinica + ". Quiero pagar el plan " + (m?.plan_nombre || "") +
+    " (" + membresiaRD(m?.precio) + (m?.ciclo === "anual" ? " al año" : " al mes") + "). Les envío el comprobante.";
+  return E("div", { onClick: onClose, style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 10050, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 } },
+    E("div", { onClick: (e) => e.stopPropagation(), style: { background: "#fff", borderRadius: 16, maxWidth: 460, width: "100%", padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,.25)" } },
+      E("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
+        E("h3", { style: { margin: 0, fontSize: 19, color: "#1a1d23" } }, "💳 Cómo pagar VetMake"),
+        E("button", { onClick: onClose, style: { background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#5a6472" } }, "×")),
+      E("div", { style: { fontSize: 14, color: "#1a1d23", marginBottom: 6 } }, "Plan ", E("b", null, m?.plan_nombre || "—"), ": ", E("b", null, membresiaRD(m?.precio)), m?.ciclo === "anual" ? " al año" : " al mes"),
+      E("div", { style: { whiteSpace: "pre-wrap", background: "#f8fcf9", border: "1px solid #d7e6dc", borderRadius: 10, padding: 14, fontSize: 14, lineHeight: 1.5, margin: "10px 0 14px" } }, m?.datos_pago || "Escríbenos por WhatsApp y te enviamos los datos para transferir."),
+      E("div", { style: { fontSize: 12, color: "#5a6472", marginBottom: 14 } }, "Cuando transfieras, envía el comprobante por WhatsApp. Activamos el pago el mismo día y el sistema se desbloquea solo."),
+      E("a", { href: membresiaWhatsApp(m?.whatsapp, texto), target: "_blank", rel: "noopener", style: { display: "block", textAlign: "center", background: "#25D366", color: "#fff", borderRadius: 10, padding: "12px 16px", fontWeight: 800, textDecoration: "none" } }, "Enviar comprobante por WhatsApp")));
+}
+
+// Barra de aviso para todos los roles. Solo aparece cuando hay algo que decir.
+function AvisoMembresia() {
+  const E = React.createElement;
+  const { datos: m, recargar } = useMiMembresia(true);
+  const [verPago, setVerPago] = React.useState(false);
+  const [cerrado, setCerrado] = React.useState(() => {
+    try { return sessionStorage.getItem("vetmake_aviso_membresia") || ""; } catch (e) { return ""; }
+  });
+  React.useEffect(() => {
+    const alBloqueo = (ev) => { if (ev?.detail?.bloqueo) { recargar(); setVerPago(true); } };
+    window.addEventListener(MEMBRESIA_EVENTO, alBloqueo);
+    return () => window.removeEventListener(MEMBRESIA_EVENTO, alBloqueo);
+  }, [recargar]);
+  if (!m) return null;
+  const est = m.estado_actual, dias = Number(m.dias_restantes);
+  let texto = "", color = "", fondo = "", fijo = false;
+  if (est === "prueba" && dias <= 5) {
+    texto = dias === 0 ? "Hoy es el último día de tu prueba gratis de VetMake." : "Te quedan " + membresiaDiasTexto(dias) + " de prueba gratis de VetMake.";
+    color = "#1a4fa0"; fondo = "#e8effd";
+  } else if (est === "por_vencer") {
+    texto = dias === 0 ? "Tu plan de VetMake vence hoy." : "Tu plan de VetMake vence en " + membresiaDiasTexto(dias) + " (" + membresiaFecha(m.vence_el) + ").";
+    color = "#92400e"; fondo = "#fdf6e3";
+  } else if (est === "en_gracia") {
+    const quedan = Number(m.dias_gracia) + dias;
+    texto = "Tu plan venció el " + membresiaFecha(m.vence_el) + ". En " + membresiaDiasTexto(quedan + 1) + " la clínica pasa a solo lectura.";
+    color = "#c2410c"; fondo = "#fff0e8";
+  } else if (est === "solo_lectura" || est === "cancelada") {
+    texto = est === "cancelada" ? "La membresía está cancelada: solo puedes consultar y exportar." : "Modo solo lectura: el plan está vencido. Puedes ver y exportar, pero no registrar nada nuevo.";
+    color = "#b8232a"; fondo = "#fdeaea"; fijo = true;
+  }
+  const clave = est + "|" + m.vence_el;
+  const mostrar = texto && (fijo || cerrado !== clave);
+  return E(React.Fragment, null,
+    mostrar && E("div", { role: "status", style: { position: "fixed", left: 12, right: 12, bottom: 12, zIndex: 10040, display: "flex", justifyContent: "center", pointerEvents: "none" } },
+      E("div", { style: { pointerEvents: "auto", maxWidth: 760, width: "100%", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: fondo, color, border: "1.5px solid " + color, borderRadius: 12, padding: "10px 14px", boxShadow: "0 8px 24px rgba(0,0,0,.12)", fontSize: 13, fontWeight: 700 } },
+        E("span", { style: { flex: 1, minWidth: 200 } }, (fijo ? "🔒 " : "⏰ ") + texto, m.es_admin ? "" : " Avísale al administrador de la clínica."),
+        m.es_admin && E("button", { onClick: () => setVerPago(true), style: { background: color, color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 800, cursor: "pointer" } }, "Cómo pagar"),
+        !fijo && E("button", { "aria-label": "Cerrar aviso", onClick: () => { setCerrado(clave); try { sessionStorage.setItem("vetmake_aviso_membresia", clave); } catch (e) {} }, style: { background: "none", border: "none", color, fontSize: 20, cursor: "pointer", lineHeight: 1 } }, "×"))),
+    verPago && E(ModalComoPagar, { m, onClose: () => setVerPago(false) }));
+}
+
+// Configuración → Mi plan.
+function MiMembresia() {
+  const E = React.createElement;
+  const { datos: m, error, recargar } = useMiMembresia(true);
+  const [verPago, setVerPago] = React.useState(false);
+  if (error) return E("div", { style: { background: "#fdeaea", color: "#b8232a", borderRadius: 10, padding: 14, fontWeight: 700 } }, "⚠️ ", error, " ", E("button", { onClick: recargar, style: { marginLeft: 8 } }, "Reintentar"));
+  if (!m) return E("div", { style: { padding: 30, textAlign: "center", color: "#5a6472" } }, "Cargando tu plan…");
+  const caja = { background: "#fff", border: "1px solid #e0e4e8", borderRadius: 12, padding: 20, marginBottom: 16 };
+  const max = m.max_usuarios, usados = Number(m.usuarios_activos) || 0;
+  const pct = max ? Math.min(100, Math.round(usados / max * 100)) : 0;
+  const clinica = vetMakeBusinessName();
+  const vence = m.estado_actual === "cortesia" ? "Sin vencimiento" : (m.estado_actual === "prueba" ? "La prueba termina el " : "Pagado hasta el ") + membresiaFecha(m.vence_el);
+  return E("div", null,
+    E("div", { style: caja },
+      E("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" } },
+        E("div", null,
+          E("div", { style: { fontSize: 12, color: "#5a6472", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" } }, "Tu plan de VetMake"),
+          E("div", { style: { fontSize: 26, fontWeight: 900, color: "#1a1d23", margin: "4px 0" } }, m.plan_nombre || "—"),
+          E("div", { style: { fontSize: 14, color: "#1a1d23" } }, E("b", null, membresiaRD(m.precio)), m.ciclo === "anual" ? " al año" : " al mes",
+            m.precio_acordado != null && E("span", { style: { color: "#166534", fontWeight: 700 } }, " · precio de fundador"))),
+        E("div", { style: { textAlign: "right" } }, E(EtiquetaMembresia, { estado: m.estado_actual }),
+          E("div", { style: { fontSize: 13, color: "#5a6472", marginTop: 6 } }, vence))),
+      E("div", { style: { marginTop: 16 } },
+        E("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 } },
+          E("span", { style: { fontWeight: 700 } }, "👥 Usuarios con acceso"),
+          E("span", null, max ? usados + " de " + max : usados + " · ilimitados")),
+        max && E("div", { style: { height: 8, background: "#eef1f3", borderRadius: 99, overflow: "hidden" } },
+          E("div", { style: { width: pct + "%", height: "100%", background: pct >= 100 ? "#b8232a" : "#1a6b3a" } })),
+        max && usados >= max && E("div", { style: { fontSize: 12, color: "#b8232a", marginTop: 6, fontWeight: 700 } }, "Ya usas todos los accesos del plan. Para dar otro, quita uno o sube de plan.")),
+      m.es_admin && E("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 } },
+        E("button", { onClick: () => setVerPago(true), style: { background: "#1a6b3a", color: "#fff", border: "none", borderRadius: 9, padding: "10px 16px", fontWeight: 800, cursor: "pointer" } }, "💳 Cómo pagar"),
+        E("button", { onClick: recargar, style: { background: "#f1f5f3", color: "#1a1d23", border: "none", borderRadius: 9, padding: "10px 16px", fontWeight: 700, cursor: "pointer" } }, "↻ Actualizar"))),
+    E("div", { style: caja },
+      E("div", { style: { fontWeight: 800, fontSize: 15, marginBottom: 12 } }, "Planes"),
+      E("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 } },
+        (m.planes || []).map((p) => {
+          const actual = p.codigo === m.plan;
+          return E("div", { key: p.codigo, style: { border: actual ? "2px solid #1a6b3a" : "1px solid #e0e4e8", borderRadius: 12, padding: 14, background: actual ? "#f3faf5" : "#fff", display: "flex", flexDirection: "column", gap: 6 } },
+            E("div", { style: { fontWeight: 900, fontSize: 16 } }, p.nombre, actual && E("span", { style: { fontSize: 11, color: "#1a6b3a", marginLeft: 6 } }, "· tu plan")),
+            E("div", { style: { fontSize: 20, fontWeight: 900, color: "#1a6b3a" } }, membresiaRD(p.precio_mensual), E("span", { style: { fontSize: 12, color: "#5a6472", fontWeight: 600 } }, " /mes")),
+            E("div", { style: { fontSize: 12, color: "#5a6472" } }, "o " + membresiaRD(p.precio_anual) + " al año (2 meses gratis)"),
+            E("ul", { style: { margin: "6px 0 0", paddingLeft: 18, fontSize: 12, lineHeight: 1.6, color: "#1a1d23" } }, (p.incluye || []).map((x, i) => E("li", { key: i }, x))),
+            m.es_admin && !actual && E("a", { href: membresiaWhatsApp(m.whatsapp, "Hola VetMake, soy de " + clinica + ". Quiero cambiar al plan " + p.nombre + "."), target: "_blank", rel: "noopener", style: { marginTop: "auto", textAlign: "center", background: "#f1f5f3", color: "#1a6b3a", borderRadius: 8, padding: "8px 10px", fontWeight: 800, fontSize: 12, textDecoration: "none" } }, "Pedir cambio a " + p.nombre));
+        }))),
+    m.es_admin && E("div", { style: caja },
+      E("div", { style: { fontWeight: 800, fontSize: 15, marginBottom: 10 } }, "Pagos registrados"),
+      (m.pagos || []).length === 0
+        ? E("div", { style: { fontSize: 13, color: "#5a6472" } }, "Todavía no hay pagos registrados.")
+        : E("div", { style: { overflowX: "auto" } }, E("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } },
+            E("thead", null, E("tr", { style: { textAlign: "left", color: "#5a6472" } }, ["Fecha", "Monto", "Método", "Cubre hasta", ""].map((h) => E("th", { key: h, style: { padding: "6px 8px", borderBottom: "1px solid #e0e4e8" } }, h)))),
+            E("tbody", null, m.pagos.map((g) => E("tr", { key: g.id, style: { opacity: g.anulado ? 0.5 : 1 } },
+              E("td", { style: { padding: "6px 8px" } }, membresiaFecha(g.fecha_pago)),
+              E("td", { style: { padding: "6px 8px", fontWeight: 700 } }, membresiaRD(g.monto)),
+              E("td", { style: { padding: "6px 8px" } }, g.metodo),
+              E("td", { style: { padding: "6px 8px" } }, membresiaFecha(g.vence_despues)),
+              E("td", { style: { padding: "6px 8px", color: "#b8232a" } }, g.anulado ? "Anulado" : ""))))))),
+    verPago && E(ModalComoPagar, { m, onClose: () => setVerPago(false) }));
+}
+
+// ─── PANEL VETMAKE (solo superadmins) ───────────────────────────────────────
+function PanelPlataforma({ onLogout, onVolver }) {
+  const E = React.createElement;
+  const [datos, setDatos] = React.useState(null);
+  const [error, setError] = React.useState("");
+  const [filtro, setFiltro] = React.useState("todas");
+  const [buscar, setBuscar] = React.useState("");
+  const [modal, setModal] = React.useState(null); // {tipo:'pago'|'editar'|'pagos', c}
+  const [config, setConfig] = React.useState(null);
+  const cargar = React.useCallback(async () => {
+    try { const d = await supaRpc("plataforma_resumen"); setDatos(d); setConfig((c) => c || d.config); setError(""); }
+    catch (e) { setError(vetmakeErrorMessage(e, "No se pudo cargar el panel.")); }
+  }, []);
+  React.useEffect(() => { cargar(); }, [cargar]);
+  const clinicas = datos?.clinicas || [];
+  const mensualEq = (c) => c.estado === "activa" ? (c.ciclo === "anual" ? Number(c.precio) / 12 : Number(c.precio)) : 0;
+  const mrr = clinicas.reduce((s, c) => s + mensualEq(c), 0);
+  const cuenta = (f) => clinicas.filter(f).length;
+  const kpis = [
+    ["Ingreso mensual", membresiaRD(Math.round(mrr))],
+    ["Pagando", cuenta((c) => c.estado === "activa")],
+    ["En prueba", cuenta((c) => c.estado_actual === "prueba")],
+    ["Por cobrar", cuenta((c) => ["por_vencer", "en_gracia"].includes(c.estado_actual))],
+    ["Solo lectura", cuenta((c) => ["solo_lectura", "cancelada"].includes(c.estado_actual))]
+  ];
+  const filtros = { todas: () => true, cobrar: (c) => ["por_vencer", "en_gracia", "solo_lectura"].includes(c.estado_actual), prueba: (c) => c.estado_actual === "prueba", activas: (c) => c.estado === "activa" };
+  const q = buscar.trim().toLowerCase();
+  const lista = clinicas.filter(filtros[filtro] || filtros.todas).filter((c) => !q || String(c.nombre || "").toLowerCase().includes(q) || String(c.email || "").toLowerCase().includes(q));
+  const actualizarClinica = (r) => setDatos((d) => ({ ...d, clinicas: d.clinicas.map((c) => c.negocio_id === r.negocio_id ? { ...c, ...r } : c) }));
+  const caja = { background: "#fff", border: "1px solid #e0e4e8", borderRadius: 12, padding: 16 };
+  const boton = (bg, fg) => ({ background: bg, color: fg, border: "none", borderRadius: 8, padding: "7px 11px", fontWeight: 800, fontSize: 12, cursor: "pointer" });
+  async function guardarConfig() {
+    try { const r = await supaRpc("plataforma_guardar_config", { p_datos_pago: config.datos_pago, p_whatsapp: config.whatsapp }); setConfig(r); avisar("Datos de pago guardados", "ok"); }
+    catch (e) { avisar(vetmakeErrorMessage(e, "No se pudieron guardar los datos de pago.")); }
+  }
+  return E("div", { style: { minHeight: "100vh", background: "#f4f5f6", padding: "20px 16px 60px" } },
+    E("div", { style: { maxWidth: 1100, margin: "0 auto" } },
+      E("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 } },
+        E("div", null, E("h1", { style: { margin: 0, fontSize: 24, color: "#1a6b3a" } }, "🐾 Panel VetMake"), E("div", { style: { fontSize: 13, color: "#5a6472" } }, "Clínicas, membresías y pagos")),
+        E("div", { style: { display: "flex", gap: 8 } },
+          onVolver && E("button", { onClick: onVolver, style: boton("#f1f5f3", "#1a1d23") }, "← Mi clínica"),
+          E("button", { onClick: cargar, style: boton("#f1f5f3", "#1a1d23") }, "↻ Actualizar"),
+          E("button", { onClick: onLogout, style: boton("#1a6b3a", "#fff") }, "Cerrar sesión"))),
+      error && E("div", { style: { background: "#fdeaea", color: "#b8232a", borderRadius: 10, padding: 12, marginBottom: 12, fontWeight: 700 } }, "⚠️ ", error),
+      !datos && !error && E("div", { style: { padding: 40, textAlign: "center", color: "#5a6472" } }, "Cargando…"),
+      datos && E(React.Fragment, null,
+        E("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 } },
+          kpis.map(([k, v]) => E("div", { key: k, style: caja }, E("div", { style: { fontSize: 12, color: "#5a6472", fontWeight: 700 } }, k), E("div", { style: { fontSize: 22, fontWeight: 900, color: "#1a1d23", marginTop: 4 } }, v)))),
+        E("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 } },
+          [["todas", "Todas"], ["cobrar", "Por cobrar"], ["prueba", "En prueba"], ["activas", "Pagando"]].map(([id, t]) => E("button", { key: id, onClick: () => setFiltro(id), style: boton(filtro === id ? "#1a6b3a" : "#fff", filtro === id ? "#fff" : "#1a1d23") }, t)),
+          E("input", { value: buscar, onChange: (e) => setBuscar(e.target.value), placeholder: "Buscar clínica o correo", style: { flex: 1, minWidth: 180, padding: "8px 11px", borderRadius: 8, border: "1px solid #d1d5db" } })),
+        E("div", { style: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 } },
+          lista.length === 0 && E("div", { style: { ...caja, textAlign: "center", color: "#5a6472" } }, "No hay clínicas en este filtro."),
+          lista.map((c) => {
+            const ultimo = (c.pagos || []).find((g) => !g.anulado);
+            const dias = Number(c.dias_restantes);
+            const venceTxt = c.estado_actual === "cortesia" ? "Sin vencimiento" : membresiaFecha(c.vence_el) + (isFinite(dias) ? (dias >= 0 ? " · faltan " + membresiaDiasTexto(dias) : " · hace " + membresiaDiasTexto(dias)) : "");
+            const telCliente = String(c.whatsapp_clinica || c.telefono || "").replace(/\D/g, "");
+            const recordatorio = "Hola, le escribimos de VetMake. El plan " + c.plan_nombre + " de " + c.nombre + " vence el " + membresiaFecha(c.vence_el) + ". Monto: " + membresiaRD(c.precio) + ". " + (config?.datos_pago || "");
+            return E("div", { key: c.negocio_id, style: { ...caja, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" } },
+              E("div", { style: { flex: "2 1 220px" } },
+                E("div", { style: { fontWeight: 900, fontSize: 15 } }, c.nombre, " ", E(EtiquetaMembresia, { estado: c.estado_actual })),
+                E("div", { style: { fontSize: 12, color: "#5a6472", marginTop: 3 } }, [c.email, c.telefono].filter(Boolean).join(" · ") || "—")),
+              E("div", { style: { flex: "1 1 150px", fontSize: 13 } }, E("b", null, c.plan_nombre), " · ", membresiaRD(c.precio), c.ciclo === "anual" ? "/año" : "/mes", c.precio_acordado != null ? " (fundador)" : "",
+                E("div", { style: { fontSize: 12, color: "#5a6472" } }, "👥 " + c.usuarios_activos + (c.max_usuarios ? "/" + c.max_usuarios : ""))),
+              E("div", { style: { flex: "1 1 170px", fontSize: 12, color: "#5a6472" } }, E("div", null, "Vence: ", E("b", { style: { color: "#1a1d23" } }, venceTxt)),
+                E("div", null, "Último pago: ", ultimo ? membresiaRD(ultimo.monto) + " · " + membresiaFecha(ultimo.fecha_pago) : "—")),
+              E("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
+                E("button", { onClick: () => setModal({ tipo: "pago", c }), style: boton("#1a6b3a", "#fff") }, "💵 Registrar pago"),
+                E("button", { onClick: () => setModal({ tipo: "editar", c }), style: boton("#f1f5f3", "#1a1d23") }, "✏️ Plan"),
+                E("button", { onClick: () => setModal({ tipo: "pagos", c }), style: boton("#f1f5f3", "#1a1d23") }, "🧾 Pagos"),
+                telCliente.length >= 10 && E("a", { href: membresiaWhatsApp(telCliente.length === 10 ? "1" + telCliente : telCliente, recordatorio), target: "_blank", rel: "noopener", style: { ...boton("#25D366", "#fff"), textDecoration: "none" } }, "Recordar")));
+          })),
+        config && E("div", { style: caja },
+          E("div", { style: { fontWeight: 800, fontSize: 15, marginBottom: 4 } }, "Datos para transferir"),
+          E("div", { style: { fontSize: 12, color: "#5a6472", marginBottom: 10 } }, "Las clínicas ven este texto en «Cómo pagar». Pon banco, tipo de cuenta, número y titular."),
+          E("textarea", { value: config.datos_pago || "", onChange: (e) => setConfig({ ...config, datos_pago: e.target.value }), rows: 4, style: { width: "100%", padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 } }),
+          E("div", { style: { display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" } },
+            E("label", { style: { fontSize: 13, fontWeight: 700 } }, "WhatsApp para comprobantes "),
+            E("input", { value: config.whatsapp || "", onChange: (e) => setConfig({ ...config, whatsapp: e.target.value }), style: { padding: "7px 10px", borderRadius: 8, border: "1px solid #d1d5db" } }),
+            E("button", { onClick: guardarConfig, style: boton("#1a6b3a", "#fff") }, "Guardar")))),
+      modal?.tipo === "pago" && E(ModalPagoPlataforma, { c: modal.c, planes: datos?.planes || [], onClose: () => setModal(null), onListo: (r) => { actualizarClinica(r); setModal(null); } }),
+      modal?.tipo === "editar" && E(ModalPlanPlataforma, { c: modal.c, planes: datos?.planes || [], onClose: () => setModal(null), onListo: (r) => { actualizarClinica(r); setModal(null); } }),
+      modal?.tipo === "pagos" && E(ModalPagosPlataforma, { c: (datos?.clinicas || []).find((x) => x.negocio_id === modal.c.negocio_id) || modal.c, onClose: () => setModal(null), onListo: actualizarClinica })));
+}
+
+function ModalPlataforma({ titulo, onClose, children }) {
+  const E = React.createElement;
+  return E("div", { onClick: onClose, style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 10050, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 } },
+    E("div", { onClick: (e) => e.stopPropagation(), style: { background: "#fff", borderRadius: 16, maxWidth: 520, width: "100%", maxHeight: "90vh", overflowY: "auto", padding: 22 } },
+      E("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 } },
+        E("h3", { style: { margin: 0, fontSize: 18 } }, titulo),
+        E("button", { onClick: onClose, style: { background: "none", border: "none", fontSize: 24, cursor: "pointer" } }, "×")),
+      children));
+}
+const PLATAFORMA_CAMPO = { width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: 14, marginTop: 4 };
+function CampoPlataforma({ label, children }) {
+  return React.createElement("label", { style: { display: "block", fontSize: 13, fontWeight: 700, marginBottom: 10 } }, label, children);
+}
+
+function ModalPagoPlataforma({ c, planes, onClose, onListo }) {
+  const E = React.createElement;
+  const [plan, setPlan] = React.useState(c.plan);
+  const [ciclo, setCiclo] = React.useState(c.ciclo || "mensual");
+  const precioDe = (p, ci) => {
+    if (p === c.plan && ci === c.ciclo && c.precio_acordado != null) return Number(c.precio_acordado);
+    const x = planes.find((y) => y.codigo === p); return x ? Number(ci === "anual" ? x.precio_anual : x.precio_mensual) : 0;
+  };
+  const [monto, setMonto] = React.useState(() => String(precioDe(c.plan, c.ciclo || "mensual")));
+  const [meses, setMeses] = React.useState(c.ciclo === "anual" ? "12" : "1");
+  const [fecha, setFecha] = React.useState(() => fechaLocal());
+  const [metodo, setMetodo] = React.useState("transferencia");
+  const [referencia, setReferencia] = React.useState("");
+  const [guardando, setGuardando] = React.useState(false);
+  const cambiar = (p, ci) => { setPlan(p); setCiclo(ci); setMonto(String(precioDe(p, ci))); setMeses(ci === "anual" ? "12" : "1"); };
+  async function guardar() {
+    if (!(Number(monto) > 0)) return avisar("Escribe el monto recibido.");
+    setGuardando(true);
+    try {
+      const r = await supaRpc("plataforma_registrar_pago", { p_negocio: c.negocio_id, p_monto: Number(monto), p_fecha: fecha, p_metodo: metodo, p_referencia: referencia || null, p_meses: Number(meses), p_plan: plan, p_ciclo: ciclo });
+      avisar("Pago registrado: " + c.nombre + " queda pagada hasta el " + membresiaFecha(r.vence_el), "ok");
+      onListo(r);
+    } catch (e) { avisar(vetmakeErrorMessage(e, "No se pudo registrar el pago.")); }
+    finally { setGuardando(false); }
+  }
+  return E(ModalPlataforma, { titulo: "💵 Pago de " + c.nombre, onClose },
+    E("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } },
+      E(CampoPlataforma, { label: "Plan" }, E("select", { value: plan, onChange: (e) => cambiar(e.target.value, ciclo), style: PLATAFORMA_CAMPO }, planes.map((p) => E("option", { key: p.codigo, value: p.codigo }, p.nombre)))),
+      E(CampoPlataforma, { label: "Ciclo" }, E("select", { value: ciclo, onChange: (e) => cambiar(plan, e.target.value), style: PLATAFORMA_CAMPO }, E("option", { value: "mensual" }, "Mensual"), E("option", { value: "anual" }, "Anual"))),
+      E(CampoPlataforma, { label: "Monto recibido (RD$)" }, E("input", { type: "number", min: 1, value: monto, onChange: (e) => setMonto(e.target.value), style: PLATAFORMA_CAMPO })),
+      E(CampoPlataforma, { label: "Meses que cubre" }, E("input", { type: "number", min: 1, max: 24, value: meses, onChange: (e) => setMeses(e.target.value), style: PLATAFORMA_CAMPO })),
+      E(CampoPlataforma, { label: "Fecha del pago" }, E("input", { type: "date", value: fecha, onChange: (e) => setFecha(e.target.value), style: PLATAFORMA_CAMPO })),
+      E(CampoPlataforma, { label: "Método" }, E("select", { value: metodo, onChange: (e) => setMetodo(e.target.value), style: PLATAFORMA_CAMPO }, ["transferencia", "efectivo", "tarjeta", "otro"].map((x) => E("option", { key: x, value: x }, x[0].toUpperCase() + x.slice(1)))))),
+    E(CampoPlataforma, { label: "Referencia o banco (opcional)" }, E("input", { value: referencia, onChange: (e) => setReferencia(e.target.value), placeholder: "Ej. Popular 004512", style: PLATAFORMA_CAMPO })),
+    E("div", { style: { fontSize: 12, color: "#5a6472", margin: "4px 0 14px" } }, "Vencimiento actual: " + membresiaFecha(c.vence_el) + ". El sistema suma los meses desde ese día si la clínica está al día o en gracia, y desde hoy si ya estaba en solo lectura."),
+    E("button", { disabled: guardando, onClick: guardar, style: { width: "100%", background: "#1a6b3a", color: "#fff", border: "none", borderRadius: 10, padding: 12, fontWeight: 800, cursor: "pointer", opacity: guardando ? 0.6 : 1 } }, guardando ? "Guardando…" : "Registrar pago"));
+}
+
+function ModalPlanPlataforma({ c, planes, onClose, onListo }) {
+  const E = React.createElement;
+  const [f, setF] = React.useState({ plan: c.plan, ciclo: c.ciclo, estado: c.estado, vence_el: String(c.vence_el || "").slice(0, 10), dias_gracia: String(c.dias_gracia ?? 7), precio: c.precio_acordado != null ? String(c.precio_acordado) : "", nota: c.nota || "" });
+  const [guardando, setGuardando] = React.useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  async function guardar() {
+    setGuardando(true);
+    try {
+      const r = await supaRpc("plataforma_guardar_membresia", {
+        p_negocio: c.negocio_id, p_plan: f.plan, p_ciclo: f.ciclo, p_estado: f.estado, p_vence_el: f.vence_el || null,
+        p_dias_gracia: Number(f.dias_gracia), p_precio_acordado: f.precio === "" ? null : Number(f.precio), p_quitar_precio: f.precio === "", p_nota: f.nota
+      });
+      avisar("Membresía de " + c.nombre + " actualizada", "ok");
+      onListo(r);
+    } catch (e) { avisar(vetmakeErrorMessage(e, "No se pudo guardar.")); }
+    finally { setGuardando(false); }
+  }
+  return E(ModalPlataforma, { titulo: "✏️ Plan de " + c.nombre, onClose },
+    E("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } },
+      E(CampoPlataforma, { label: "Plan" }, E("select", { value: f.plan, onChange: set("plan"), style: PLATAFORMA_CAMPO }, planes.map((p) => E("option", { key: p.codigo, value: p.codigo }, p.nombre)))),
+      E(CampoPlataforma, { label: "Ciclo" }, E("select", { value: f.ciclo, onChange: set("ciclo"), style: PLATAFORMA_CAMPO }, E("option", { value: "mensual" }, "Mensual"), E("option", { value: "anual" }, "Anual"))),
+      E(CampoPlataforma, { label: "Estado" }, E("select", { value: f.estado, onChange: set("estado"), style: PLATAFORMA_CAMPO },
+        [["prueba", "Prueba"], ["activa", "Activa (pagando)"], ["cortesia", "Cortesía (sin vencimiento)"], ["cancelada", "Cancelada"]].map(([v, t]) => E("option", { key: v, value: v }, t)))),
+      E(CampoPlataforma, { label: "Pagado / prueba hasta" }, E("input", { type: "date", value: f.vence_el, onChange: set("vence_el"), style: PLATAFORMA_CAMPO })),
+      E(CampoPlataforma, { label: "Días de gracia" }, E("input", { type: "number", min: 0, max: 60, value: f.dias_gracia, onChange: set("dias_gracia"), style: PLATAFORMA_CAMPO })),
+      E(CampoPlataforma, { label: "Precio de fundador (vacío = lista)" }, E("input", { type: "number", min: 0, value: f.precio, onChange: set("precio"), placeholder: "Ej. 2490", style: PLATAFORMA_CAMPO }))),
+    E(CampoPlataforma, { label: "Nota interna" }, E("textarea", { rows: 2, value: f.nota, onChange: set("nota"), style: PLATAFORMA_CAMPO })),
+    E("button", { disabled: guardando, onClick: guardar, style: { width: "100%", background: "#1a6b3a", color: "#fff", border: "none", borderRadius: 10, padding: 12, fontWeight: 800, cursor: "pointer", opacity: guardando ? 0.6 : 1 } }, guardando ? "Guardando…" : "Guardar cambios"));
+}
+
+function ModalPagosPlataforma({ c, onClose, onListo }) {
+  const E = React.createElement;
+  const [anulando, setAnulando] = React.useState(null);
+  const ultimoVigente = (c.pagos || []).find((g) => !g.anulado);
+  async function anular(g) {
+    if (anulando !== g.id) { setAnulando(g.id); return; }
+    try { const r = await supaRpc("plataforma_anular_pago", { p_pago: g.id }); avisar("Pago anulado", "ok"); onListo(r); setAnulando(null); }
+    catch (e) { avisar(vetmakeErrorMessage(e, "No se pudo anular.")); }
+  }
+  return E(ModalPlataforma, { titulo: "🧾 Pagos de " + c.nombre, onClose },
+    (c.pagos || []).length === 0 ? E("div", { style: { color: "#5a6472", fontSize: 13 } }, "Sin pagos registrados.") :
+    E("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, c.pagos.map((g) =>
+      E("div", { key: g.id, style: { border: "1px solid #e0e4e8", borderRadius: 10, padding: 10, opacity: g.anulado ? 0.5 : 1, display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" } },
+        E("div", { style: { fontSize: 13 } }, E("b", null, membresiaRD(g.monto)), " · ", membresiaFecha(g.fecha_pago), " · ", g.metodo, g.referencia ? " · " + g.referencia : "",
+          E("div", { style: { fontSize: 12, color: "#5a6472" } }, g.meses + (g.meses === 1 ? " mes" : " meses") + " · cubre hasta " + membresiaFecha(g.vence_despues) + (g.anulado ? " · ANULADO" : ""))),
+        ultimoVigente && ultimoVigente.id === g.id && E("button", { onClick: () => anular(g), style: { background: anulando === g.id ? "#b8232a" : "#fdeaea", color: anulando === g.id ? "#fff" : "#b8232a", border: "none", borderRadius: 8, padding: "6px 10px", fontWeight: 800, fontSize: 12, cursor: "pointer" } }, anulando === g.id ? "Confirmar anulación" : "Anular")))));
+}
+
 function RangosNCF({ esAdmin }) {
   const E = React.createElement;
   const [secuencias, setSecuencias] = React.useState([]);
@@ -6725,7 +7096,7 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
       E("div", null,
         E("h2", { style: { margin: 0, fontSize: 22, fontWeight: 800, color: "#1a1d23" } }, "⚙️ Configuración"),
         E("div", { style: { color: "#5a6472", fontSize: 13, marginTop: 4 } }, "Prepara el perfil, el equipo y las reglas de tu negocio.")),
-      E("div", { style: { display: "flex", gap: 7, flexWrap: "wrap" } }, botonSeccion("perfil", "🏢", "Perfil comercial"), botonSeccion("equipo", "👥", "Equipo"), botonSeccion("ncf", "🧾", "Comprobantes NCF"), botonSeccion("ayuda", "✓", "Siguiente paso"))
+      E("div", { style: { display: "flex", gap: 7, flexWrap: "wrap" } }, botonSeccion("perfil", "🏢", "Perfil comercial"), botonSeccion("equipo", "👥", "Equipo"), botonSeccion("ncf", "🧾", "Comprobantes NCF"), botonSeccion("membresia", "💳", "Mi plan"), botonSeccion("ayuda", "✓", "Siguiente paso"))
     ),
     mensaje && E("div", { style: { padding: "10px 13px", borderRadius: 9, marginBottom: 16, background: mensaje.tipo === "ok" ? "#e8f5ed" : "#fdeaea", color: mensaje.tipo === "ok" ? "#166534" : "#b4232a", fontSize: 13, fontWeight: 700 } }, mensaje.tipo === "ok" ? "✅ " : "⚠️ ", mensaje.texto),
     seccion === "perfil" && E("div", null,
@@ -6786,6 +7157,7 @@ function ConfiguracionNegocio({ tenant, onTenantChange, empleados = [], setEmple
             )))
       )
     ),
+    seccion === "membresia" && E(MiMembresia, null),
     seccion === "ncf" && E("div", null, E(RangosNCF, { esAdmin: tenant?.rol === "admin" }), tenant?.rol === "admin" && E(Reporte607, null), tenant?.rol === "admin" && E(Reporte608, null)),
     seccion === "ayuda" && E("div", { style: { display: "grid", gap: 14 } },
       E("div", { style: { background: "#e8f5ed", border: "1px solid #b7dec4", borderRadius: 12, padding: 20 } }, E("div", { style: { fontWeight: 800, fontSize: 16, color: "#166534", marginBottom: 8 } }, "✅ Perfil preparado"), E("div", { style: { fontSize: 13, color: "#365b42", lineHeight: 1.55 } }, "El siguiente orden recomendado es: completar el perfil, agregar el equipo, configurar tarifas y comisiones, y luego crear los accesos de Auth para cada empleado.")),

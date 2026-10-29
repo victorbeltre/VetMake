@@ -124,6 +124,31 @@ async function linkEmployee(req: Request, body: Record<string, unknown>) {
   if (!role) throw new HttpError(400, "role_required", "Selecciona un rol antes de enviar la invitación.")
 
   const authUser = await findAuthUserByEmail(email)
+
+  // Membresía: comprobar estado y cupo del plan ANTES de invitar, para no
+  // dejar usuarios de Auth huérfanos cuando el plan ya está lleno.
+  const { data: cupo, error: cupoError } = await adminClient.rpc("membresia_cupo", { p_negocio: membership.negocio_id })
+  if (cupoError) throw new HttpError(502, "plan_lookup_failed", "No se pudo comprobar el plan de la clínica.")
+  if (cupo && cupo.puede_escribir === false) {
+    throw new HttpError(402, "membership_expired", "La membresía de VetMake está vencida. Registra el pago para dar nuevos accesos.")
+  }
+  if (cupo && cupo.max_usuarios != null) {
+    let yaEsMiembro = false
+    if (authUser) {
+      const { data: filaActual } = await adminClient
+        .from("usuarios_negocio")
+        .select("activo")
+        .eq("usuario_id", authUser.id)
+        .eq("negocio_id", membership.negocio_id)
+        .maybeSingle()
+      yaEsMiembro = Boolean(filaActual?.activo)
+    }
+    if (!yaEsMiembro && Number(cupo.usuarios_activos) >= Number(cupo.max_usuarios)) {
+      throw new HttpError(409, "plan_user_limit",
+        `El plan ${cupo.plan_nombre} permite ${cupo.max_usuarios} usuarios y ya están todos en uso. Quita un acceso o cambia de plan.`)
+    }
+  }
+
   let user = authUser
   let invited = false
 
@@ -182,7 +207,11 @@ async function linkEmployee(req: Request, body: Record<string, unknown>) {
       negocio_id: membership.negocio_id,
       rol: role,
     })
-    if (error) throw new HttpError(502, "membership_insert_failed", "No se pudo crear la membresía del usuario.")
+    if (error) {
+      if (invited) await adminClient.auth.admin.deleteUser(user.id)
+      if (error.hint === "vetmake_limite_usuarios") throw new HttpError(409, "plan_user_limit", error.message)
+      throw new HttpError(502, "membership_insert_failed", "No se pudo crear la membresía del usuario.")
+    }
     membershipCreated = true
   }
 
