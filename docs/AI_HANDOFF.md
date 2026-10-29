@@ -3,6 +3,42 @@
 Este archivo resume el estado comprobable del trabajo activo. El repositorio y
 el historial remoto de Supabase son la fuente de verdad.
 
+## Relevo de Claude — facturación electrónica e-CF (2026-10-29)
+
+- Rama `claude/ecf-facturacion-electronica`, desde `claude/listo-produccion`.
+- Contexto: la DGII exige e-CF a pequeños, micro y no clasificados desde el
+  15 nov 2026 (noticia DGII 26/08/2026). Decisión de Victor: enviar por la API
+  del proveedor eCF MSeller (cuenta «Proveedor» multi-clínica, JSON con la
+  estructura del XML DGII; MSeller firma con el .p12 de cada clínica) y, como
+  respaldo, anotar a mano e-NCF emitidos en el Facturador Gratuito.
+- Supabase: `20261029231839_facturacion_electronica_ecf.sql` APLICADA (md5 del
+  archivo = el de la migración remota). Rangos E31/E32/E34 (10 dígitos;
+  E31 exige vencimiento); columnas `ecf_*` en facturas y notas;
+  `asignar_ncf_factura` acepta E31/E32 (E32 ≥ RD$250k exige RNC);
+  `emitir_nota_credito` usa E34 si la factura es e-CF y exige que esté
+  aceptada; `registrar_ecf_manual`; trigger `vetmake_proteger_factura_ecf`
+  (un e-CF no rechazado no cambia líneas, montos ni fecha);
+  `vetmake_ecf_config` + Vault para contraseña y API key (la app solo ve
+  `ecf_config()` sin secretos); funciones `ecf_servidor_*` solo service_role;
+  `private.ecf_documento` arma el JSON DGII. Probado con ROLLBACK como admin
+  de la demo (rangos, asignación idempotente, JSON E32 y E34, inmutabilidad,
+  nota bloqueada hasta aceptación, registro manual, Vault).
+- Edge Function nueva `supabase/functions/vetmake-ecf` (acciones `probar`,
+  `emitir`, `consultar`; token reutilizado 55 min y renovado con
+  refreshToken; mensajes de rechazo de la DGII a `ecf_mensaje`; estado
+  «Error» del proveedor vuelve a «por enviar»). `deno check` OK y probada
+  localmente contra un simulador del proveedor y de Supabase. **Sin
+  desplegar** (verify_jwt = true).
+- Frontend: Configuración → «⚡ Facturación electrónica» (`ConfigECF` +
+  rangos), `ModalNCF` con pestañas Electrónico / Facturador Gratuito /
+  Tradicional (B), estado e-CF en la factura y en las notas, QR y código de
+  seguridad en impresión, PDF y WhatsApp (qrcode-generator 1.4.4, cdnjs),
+  facturas e-CF no se editan ni se anulan (nota E34). Playwright simulado:
+  configurar, asignar E32 y enviar con el id real (`emitir` con el uuid).
+- Pendiente de verificar en TesteCF con una clínica real: que el proveedor
+  acepte E32 sin bloque `Comprador` y el redondeo de ITBIS a peso.
+- `scripts/validate.mjs`: 49 migraciones.
+
 ## Relevo de Claude — listo para producción, parte 1 (2026-10-29)
 
 - Rama `claude/listo-produccion`, creada desde `claude/membresias-planes`

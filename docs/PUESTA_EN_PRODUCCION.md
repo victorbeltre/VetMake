@@ -61,7 +61,27 @@ Con Resend (plan gratis: 3,000 correos al mes, 100 por día, 1 dominio):
    invitación y la de recuperación.
 7. Probar: invitar un empleado de la Clínica Demo y recuperar una contraseña.
 
-## 5. Antes de la primera clínica real
+## 5. Facturación electrónica (e-CF) de cada clínica
+
+Una sola vez, Victor:
+1. Crear la cuenta **Proveedor** en ecf.mseller.app (paso 3 del registro).
+2. Desplegar la Edge Function `vetmake-ecf` (verify_jwt = true).
+
+Por cada clínica:
+1. La clínica compra su certificado digital (.p12) en la Cámara de Comercio
+   (digi.camarasantodomingo.do).
+2. Desde el panel Proveedor: «Crear subcuenta» con el RNC y un correo propio
+   de la clínica, subir el .p12 y crear API keys (TesteCF, CerteCF, eCF).
+3. En VetMake → Configuración → Facturación electrónica: correo, contraseña,
+   API key y ambiente; «Probar conexión».
+4. Certificar ante la DGII (guía de MSeller, ~10 minutos + espera DGII) y
+   solicitar en la Oficina Virtual los rangos e-NCF E31, E32 y E34.
+5. Cargar los rangos en VetMake, poner el ambiente en Producción y activar.
+
+Mientras tanto la clínica puede emitir en el Facturador Gratuito de la DGII y
+anotar el e-NCF en la factura (pestaña «Facturador Gratuito»).
+
+## 6. Antes de la primera clínica real
 
 - [ ] Desplegar la Edge Function `vetmake-admin` (comprueba el cupo del plan).
 - [ ] Escribir los datos bancarios en Panel VetMake → «Datos para transferir».
