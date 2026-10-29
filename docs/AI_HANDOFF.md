@@ -34,7 +34,9 @@ el historial remoto de Supabase son la fuente de verdad.
   Pages), URLs de Auth, `VETMAKE_SITE_URL`, SMTP con Resend gratis y checklist
   previo a la primera clínica. La app ya arma enlaces con
   `window.location.origin`: no hay URLs fijas que cambiar en el código.
-- Sin tocar: tablas `fit13_*` (datos de otra app; moverlas, no borrarlas).
+- Tablas `fit13_*` (otra app) ELIMINADAS por pedido de Victor:
+  `20261029230404_eliminar_fit13` (aplicada; las migraciones remotas
+  `fit13_init` y `fit13_private_membership_fn` siguen en el historial).
 - `scripts/validate.mjs`: 47 migraciones.
 
 ## Relevo de Claude — membresías de VetMake (2026-10-29)

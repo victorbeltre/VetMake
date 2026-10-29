@@ -13,8 +13,9 @@ Propuesta de direcciones:
 
 ## 1. Comprar el dominio
 
-- Opción barata: un `.com` en Cloudflare Registrar (precio de costo, sin
-  recargo de renovación). Comprobar primero que el nombre esté libre.
+- Opción barata: un `.com` en Cloudflare Registrar: US$10.46 al año y la
+  renovación cuesta lo mismo (precio de costo, privacidad WHOIS gratis).
+  Comprobar primero que el nombre esté libre.
 - `.do` / `.com.do`: se compra en NIC.do; da presencia local pero el trámite es
   más lento y no todos los proveedores de DNS lo manejan.
 - Usar Cloudflare como DNS (gratis) en cualquiera de los dos casos.
@@ -67,7 +68,5 @@ Con Resend (plan gratis: 3,000 correos al mes, 100 por día, 1 dominio):
 - [ ] Prueba con sesión real por cada rol (`docs/PRUEBA_ROLES.md`).
 - [ ] Generar y probar un respaldo: `probar_respaldo_negocio()` debe dar
       `exito: true` y `tablas_sin_respaldo: []`.
-- [ ] Las tablas `fit13_*` de otra aplicación siguen en `vetmake-dev`: moverlas
-      a su propio proyecto (no se borraron por ser datos ajenos).
 - [ ] Protección de contraseñas filtradas (Auth → Passwords): Supabase la
       ofrece en planes de pago; activarla al pasar a plan Pro.
